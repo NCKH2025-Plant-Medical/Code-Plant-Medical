@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:thunghiem1/Views/camera.dart';
 import 'Views/home.dart';
 import 'Views/account.dart';
 import 'Views/setting.dart';
+import '../Services/flutter_integration.dart';
 
 
 void main() {
@@ -20,6 +22,7 @@ class master_screen extends StatefulWidget {
 
 class _master_screenState extends State<master_screen> {
   int myIndex = 0;
+  // ImageUploadService fb = ImageUploadService();
 
   final List<Widget> screens = [
     Home(),
@@ -29,6 +32,7 @@ class _master_screenState extends State<master_screen> {
   ];
   @override
   Widget build(BuildContext context) {
+    SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(statusBarColor: Colors.transparent, statusBarIconBrightness: Brightness.dark, statusBarBrightness: Brightness.light));
     return Scaffold(
       body: screens[myIndex],
       bottomNavigationBar: BottomNavigationBar(

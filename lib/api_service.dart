@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 class ApiService {
-  final String baseUrl = "http://172.20.10.14:5000";
+  final String baseUrl = "http://192.168.1.106:7000";
 
 
   Future<Map<String, dynamic>> predictImage(String imagePath) async {

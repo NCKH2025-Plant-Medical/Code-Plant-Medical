@@ -2,8 +2,8 @@
     <uses-permission android:name="android.permission.INTERNET"/>
 
     <application
-        android:label="thunghiem1"
-        android:name="${applicationName}"
+        android:label="Plant Vision"
+        android:name="android.app.Application"
         android:icon="@mipmap/ic_launcher">
         <activity
             android:name=".MainActivity"

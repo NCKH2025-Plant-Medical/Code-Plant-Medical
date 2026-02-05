@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'history_screen.dart';
 
 void main(){
   runApp(MaterialApp(
@@ -19,15 +20,12 @@ class _HomeState extends State<Home> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Color.fromRGBO(248, 248, 248, 1),
       body: SingleChildScrollView(
         child: SafeArea(
           child: Stack(
               children: [
                 //Lớp 1
-                Container(
-                  color: Color.fromRGBO(245, 246, 250, 0.9),
-                ),
-                //Lớp 2
                 Container(
                   child: Image.asset('assets/img/Banner.jpg'),
                   decoration: BoxDecoration(
@@ -41,12 +39,11 @@ class _HomeState extends State<Home> {
                       ]
                   ),
                 ),
-                //Lớp 3
+                //Lớp 2
                 Column(
                   children: [
                     //Phần đầu tiên của cột
                     Padding(padding: EdgeInsets.fromLTRB(20.0, 40.0, 20.0, 0.0),
-
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -76,7 +73,7 @@ class _HomeState extends State<Home> {
                     ),
                     //Phần thứ 3 của cột
                     //Thanh tìm kiếm
-                    Padding(padding: EdgeInsets.fromLTRB(22.0, 28.0, 22.0, 0.0),
+                    Padding(padding: EdgeInsets.fromLTRB(22.0, 24.0, 22.0, 0.0),
                       child: Container(
                         decoration: BoxDecoration(
                             color: Colors.grey,
@@ -93,7 +90,7 @@ class _HomeState extends State<Home> {
                         child: TextField(
                           decoration: InputDecoration(
                             filled: true,
-                            fillColor: Color.fromRGBO(246, 242, 250, 0.99),
+                            fillColor: Color.fromRGBO(248, 248, 248, 1),
                             hintText: 'Searching',
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(30),
@@ -111,7 +108,7 @@ class _HomeState extends State<Home> {
                         children: [
                           GestureDetector(
                             onTap: (){
-
+                              Navigator.push(context, MaterialPageRoute(builder: (context) => ImagesListScreen()) );
                             },
                             child: Container(
                               width: 160,
@@ -127,19 +124,43 @@ class _HomeState extends State<Home> {
                                 )],
                               ),
 
-                              child: Padding(
-                                padding: const EdgeInsets.all(8.0),
-                                child: Column(
+                              child: SizedBox(
+                                height: 160,
+                                width: 120,
+                                child: Stack(
+                                  clipBehavior: Clip.none,
                                   children: [
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: [
-                                        // Icon(Icons.ac_unit, size: 50, color: Colors.grey,),
-                                      ],
+                                    Center(
+                                      child: Column(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                            Text(
+                                              "Hello",
+                                              style: TextStyle(color: Colors.green, fontSize: 12, fontWeight: FontWeight.bold),
+                                            ),
+                                            Text(
+                                              "History\nIdentification",
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 16,
+                                                color: Colors.black87,
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                    Positioned(
+                                      top: -35,
+                                      right: -20,
+                                      child: Image.asset(
+                                        'assets/img/func1.png',
+                                        width: 100,
+                                      ),
                                     ),
                                   ],
                                 ),
-                              ),
+                              )
                             ),
                           ),
                           GestureDetector(
@@ -161,6 +182,43 @@ class _HomeState extends State<Home> {
                                     )
                                   ]
                               ),
+                              child: SizedBox(
+                              height: 160,
+                              width: 120,
+                              child: Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  Center(
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          "Hello",
+                                          style: TextStyle(color: Colors.green, fontSize: 12, fontWeight: FontWeight.bold),
+                                        ),
+                                        Text(
+                                          "Chức năng 2",
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 16,
+                                            color: Colors.black87,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Positioned(
+                                    top: -35,
+                                    right: -20,
+                                    child: Image.asset(
+                                      'assets/img/func2.png',
+                                      width: 100,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
                             ),
                           ),
                         ],
@@ -188,19 +246,43 @@ class _HomeState extends State<Home> {
                                 )],
                               ),
 
-                              child: Padding(
-                                padding: const EdgeInsets.all(8.0),
-                                child: Column(
-                                  children: [
-                                    Row(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: [
-                                        // Icon(Icons.ac_unit, size: 50, color: Colors.grey,),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                              ),
+                                child: SizedBox(
+                                  height: 160,
+                                  width: 120,
+                                  child: Stack(
+                                    clipBehavior: Clip.none,
+                                    children: [
+                                      Center(
+                                        child: Column(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              "Hello",
+                                              style: TextStyle(color: Colors.green, fontSize: 12, fontWeight: FontWeight.bold),
+                                            ),
+                                            Text(
+                                              "Chức năng 3",
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 16,
+                                                color: Colors.black87,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      Positioned(
+                                        top: -35,
+                                        right: -20,
+                                        child: Image.asset(
+                                          'assets/img/func3.png',
+                                          width: 100,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                )
                             ),
                           ),
                           GestureDetector(
@@ -222,6 +304,43 @@ class _HomeState extends State<Home> {
                                     )
                                   ]
                               ),
+                                child: SizedBox(
+                                  height: 160,
+                                  width: 120,
+                                  child: Stack(
+                                    clipBehavior: Clip.none,
+                                    children: [
+                                      Center(
+                                        child: Column(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              "Hello",
+                                              style: TextStyle(color: Colors.green, fontSize: 12, fontWeight: FontWeight.bold),
+                                            ),
+                                            Text(
+                                              "Chức năng 4",
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 16,
+                                                color: Colors.black87,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      Positioned(
+                                        top: -35,
+                                        right: -20,
+                                        child: Image.asset(
+                                          'assets/img/func4.png',
+                                          width: 100,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                )
                             ),
                           ),
 
