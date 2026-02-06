@@ -6,121 +6,109 @@ import uvicorn
 from PIL import Image
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import JSONResponse
+import database  # Đảm bảo file database.py nằm cùng thư mục với file này
 
 # ----------------------------------------------------
-# A. Cấu hình & Tải Model và Database
+# A. Cấu hình & Tải Model
 # ----------------------------------------------------
 
-# Kích thước ảnh phải khớp với lúc train (MobileNetV2)
+# Kích thước ảnh phải khớp với lúc train
 IMAGE_SIZE = (224, 224)
 MODEL_PATH = "Plane_model.keras" 
 CLASS_NAMES_PATH = "class_names.json"
-PLANT_INFO_PATH = "plant_info.json" # <--- PATH ĐẾN DB TĨNH
 
-# Khởi tạo FastAPI
 app = FastAPI()
 
-# Biến toàn cục để lưu Model, Class Names và Database
+# Biến toàn cục
 MODEL = None
 CLASS_NAMES = []
-PLANT_INFO = {}
 
 def load_ai_model():
-    """Tải model, class names và thông tin cây khi server khởi động"""
-    global MODEL, CLASS_NAMES, PLANT_INFO
+    """Tải model và class names khi server khởi động"""
+    global MODEL, CLASS_NAMES
     try:
         # 1. Tải Model
         MODEL = tf.keras.models.load_model(MODEL_PATH)
+        print("✅ Đã tải Model thành công.")
         
         # 2. Tải Class Names
         with open(CLASS_NAMES_PATH, "r", encoding="utf-8") as f:
             CLASS_NAMES = json.load(f)
+        print(f"✅ Đã tải danh sách nhãn: {CLASS_NAMES}")
             
-        # 3. Tải Database thông tin chi tiết
-        with open(PLANT_INFO_PATH, "r", encoding="utf-8") as f:
-            PLANT_INFO = json.load(f)
-            
-        print(f"✅ Model, nhãn và thông tin {len(PLANT_INFO)} cây đã tải thành công.")
     except Exception as e:
-        print(f"❌ LỖI KHỞI TẠO: Không thể tải các file cần thiết. {e}")
+        print(f"❌ LỖI KHỞI TẠO: {e}")
         MODEL = None
         
-load_ai_model() # Tải model ngay lập tức
+load_ai_model() 
 
 # ----------------------------------------------------
 # B. Hàm Xử lý Ảnh
 # ----------------------------------------------------
 
 def transform_image(image_bytes):
-    """Xử lý ảnh từ bytes thành tensor cho model"""
+    """
+    Xử lý ảnh đầu vào. 
+    LƯU Ý: Không chia cho 255 vì Model đã có lớp Rescaling bên trong.
+    """
     try:
         image = Image.open(io.BytesIO(image_bytes))
-        image = image.resize(IMAGE_SIZE)
-        # Chuyển ảnh thành mảng và thêm chiều batch
+        
+        # 1. Bắt buộc chuyển sang RGB (tránh lỗi ảnh PNG trong suốt hoặc ảnh xám)
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+            
+        # 2. Resize ảnh (Dùng LANCZOS để ảnh nét hơn, giữ chi tiết gân lá tốt hơn mặc định)
+        image = image.resize(IMAGE_SIZE, resample=Image.LANCZOS)
+        
+        # 3. Chuyển thành mảng
         img_array = tf.keras.utils.img_to_array(image)
+        
+        # 4. Thêm chiều batch (Ví dụ: từ (224,224,3) -> (1,224,224,3))
         img_array = tf.expand_dims(img_array, 0) 
+        
         return img_array
     except Exception as e:
+        print(f"Lỗi xử lý ảnh: {e}")
         return None
 
 # ----------------------------------------------------
 # C. API Endpoints
 # ----------------------------------------------------
 
-# Endpoint 1: Dự đoán cây từ ảnh (POST)
 @app.post("/predict")
 async def predict_api(file: UploadFile = File(...)):
-    """Endpoint nhận ảnh và trả về dự đoán"""
+    """Endpoint nhận ảnh -> Dự đoán -> Lấy thông tin từ MySQL -> Trả về kết quả"""
     
     if MODEL is None:
-        return JSONResponse(
-            status_code=500, 
-            content={"error": "AI Model chưa được tải. Vui lòng kiểm tra file model."}
-        )
+        return JSONResponse(status_code=500, content={"error": "AI Model chưa sẵn sàng."})
     
+    # 1. Đọc và xử lý ảnh
     img_bytes = await file.read()
     tensor = transform_image(img_bytes)
     
     if tensor is None:
-         return JSONResponse(
-             status_code=400, 
-             content={"error": "Định dạng ảnh không hợp lệ (chỉ chấp nhận JPG/PNG)."}
-         )
+         return JSONResponse(status_code=400, content={"error": "File ảnh lỗi."})
 
-    # Dự đoán
+    # 2. Dự đoán bằng AI
     predictions = MODEL.predict(tensor)
     score = tf.nn.softmax(predictions[0])
     
-    # Định dạng kết quả
     predicted_class_index = np.argmax(score)
-    predicted_class = CLASS_NAMES[predicted_class_index]
+    predicted_class = CLASS_NAMES[predicted_class_index] # Ví dụ: "Ngai_cuu"
     confidence = float(np.max(score))
     
-    return {
+    print(f"🔍 AI dự đoán: {predicted_class} ({confidence*100:.2f}%)")
+
+    # 3. KẾT NỐI DATABASE ĐỂ LẤY THÔNG TIN
+    # Gọi hàm từ file database.py
+    plant_info = database.get_plant_info_by_label(predicted_class)
+
+    # 4. Trả về kết quả (Gộp thông tin AI và thông tin Thuốc)
+    response_data = {
         "prediction": predicted_class,
         "confidence": f"{confidence * 100:.2f}%",
-        "status": "OK"
+        "plant_info": plant_info if plant_info else "Chưa có thông tin trong Database"
     }
-
-# Endpoint 2: Tra cứu thông tin cây (GET)
-@app.get("/info/{plant_name}")
-async def get_plant_info(plant_name: str):
-    """Endpoint tra cứu thông tin chi tiết của một cây"""
     
-    # Kiểm tra xem tên cây có tồn tại trong database (PLANT_INFO) không
-    if plant_name in PLANT_INFO:
-        # Nếu có, trả về toàn bộ thông tin chi tiết của cây đó
-        return PLANT_INFO[plant_name]
-    else:
-        # Nếu không tìm thấy, trả về lỗi 404
-        return JSONResponse(
-            status_code=404, 
-            content={"error": f"Không tìm thấy thông tin cho cây '{plant_name}'."}
-        )
-
-# ----------------------------------------------------
-# D. Chạy Server
-# ----------------------------------------------------
-
-# KHÔNG CẦN THÊM PHẦN if __name__ == "__main__": 
-# CHỈ CẦN CHẠY LỆNH UVICORN TỪ TERMINAL
+    return response_data
