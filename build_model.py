@@ -1,11 +1,11 @@
-# File: build_model.py
+
 import tensorflow as tf
 from tensorflow.keras import layers, models
 from tensorflow.keras.applications import MobileNetV2 
 from tensorflow.keras.applications.mobilenet_v2 import preprocess_input
 
 def create_model(num_classes):
-    # 1. Định nghĩa Data Augmentation (Đưa vào trong hàm để tránh lỗi)
+    # Định nghĩa Data Augmentation (Đưa vào trong hàm để tránh lỗi)
     data_augmentation = tf.keras.Sequential([
         layers.RandomFlip("horizontal_and_vertical"),
         layers.RandomRotation(0.2),
@@ -13,14 +13,14 @@ def create_model(num_classes):
         layers.RandomContrast(0.2), 
     ]) 
 
-    # 2. Tải mô hình MobileNetV2 (base_model)
+    #  Tải mô hình MobileNetV2 (base_model)
     base_model = MobileNetV2(
         input_shape=(224, 224, 3),
         include_top=False,
         weights='imagenet'
     )
     
-    # 🌟 THIẾT LẬP FINE-TUNING: Mở khóa các lớp cuối
+    # THIẾT LẬP FINE-TUNING: Mở khóa các lớp cuối
     base_model.trainable = True
 
     # Đóng băng 100 lớp đầu tiên (chỉ Fine-Tuning 35 lớp cuối)
@@ -44,4 +44,5 @@ def create_model(num_classes):
 
     model = models.Model(inputs, outputs)
     
+
     return model
