@@ -5,19 +5,19 @@ import os
 from load_model import load_datasets_kfold
 from build_model import create_model
 
-# 1. Cấu hình
-K_FOLDS = 3             # <--- ĐÃ GIẢM XUỐNG 3
+# Cấu hình
+K_FOLDS = 3             # ĐÃ GIẢM XUỐNG 3
 EPOCHS_PER_FOLD = 20    # Giữ số này thấp để train nhanh
 best_accuracy = 0.0
 
-# 2. Load dữ liệu dạng K-Fold
+# Load dữ liệu dạng K-Fold
 print(f"Đang chia dữ liệu thành {K_FOLDS} phần (Folds)...")
 folds, class_names, num_classes = load_datasets_kfold(k_folds=K_FOLDS)
 
 with open("class_names.json", "w", encoding="utf-8") as f:
     json.dump(class_names, f, ensure_ascii=False)
 
-# 3. Bắt đầu vòng lặp huấn luyện
+# Bắt đầu vòng lặp huấn luyện
 for i, (train_ds, val_ds) in enumerate(folds):
     fold_no = i + 1
     print(f"\n{'='*40}")
@@ -27,7 +27,7 @@ for i, (train_ds, val_ds) in enumerate(folds):
     model = create_model(num_classes)
 
     optimizer = tf.keras.optimizers.Adam(
-        learning_rate=0.00001  # <--- GIẢM TỪ 0.0001 XUỐNG CÒN 0.00001
+        learning_rate=0.00001  
     ) 
     
     model.compile(
@@ -57,4 +57,5 @@ for i, (train_ds, val_ds) in enumerate(folds):
 
 print(f"\n{'='*40}")
 print(f"HOÀN TẤT. Model tốt nhất đạt: {best_accuracy*100:.2f}%")
+
 print(f"File model: Plane_model.keras")
