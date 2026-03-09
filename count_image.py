@@ -1,6 +1,6 @@
 import os
 
-folder = "AI model/dataset_processed"
+folder = "dataset_processed"
 
 print("Đang đếm số lượng ảnh trong mỗi lớp...")
 
@@ -19,4 +19,5 @@ for class_name in os.listdir(folder):
                 image_count += 1
         
        
+
         print(f"Lớp '{class_name}' có: {image_count} ảnh")
