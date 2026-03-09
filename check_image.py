@@ -1,7 +1,7 @@
 import os 
 import cv2
 
-folder = "AI model/dataset_processed"
+folder = "dataset_processed"
 
 for class_name in os.listdir(folder):
     class_path = os.path.join (folder,class_name)
@@ -28,5 +28,6 @@ for class_name in os.listdir(folder):
 
                 print(f"Ảnh hợp lệ: {filename} ({class_name}) → {img.shape}")
                 count += 1
+
 
         print(f"Tổng ảnh hợp lệ trong '{class_name}': {count}")
