@@ -1,10 +1,19 @@
 import tensorflow as tf
+import os
 
 def load_datasets_kfold(k_folds=5): # chia dữ liệu thành 5 phần như nhau
-    dataset_path = "dataset_processed"
+    # Tự động lấy đường dẫn thư mục hiện tại đang chứa file load_model.py (tức là thư mục NCKH)
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # Tự động nối ghép để trỏ chính xác vào dataset_processed
+    dataset_path = os.path.join(base_dir, "dataset_processed")
+    
     img_size = (224, 224)  
     batch_size = 32 # 1 batch = 32 ảnh
     seed = 42
+
+    # In ra thử để bạn kiểm tra xem nó trỏ đúng chưa (có thể xóa dòng này sau khi chạy OK)
+    print("Đang đọc dữ liệu từ:", dataset_path)
 
     # Làm sạch và chuẩn bị nguyên liệu 
     full_dataset = tf.keras.utils.image_dataset_from_directory( # Hàm hỗ trợ đi vào thư mục, quét và gán nhãn chia vali, train, xáo trộn
