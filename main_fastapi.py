@@ -23,11 +23,16 @@ from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import JSONResponse # Đóng gói câu trả lời của server trả về cho người dùng dưới dạng chuẩn JSON
 import database  # gọi file database.py 
 
+from build_model import create_model
+
+
+import os
+# Lấy đường dẫn tuyệt đối để tránh lỗi File Not Found
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 IMAGE_SIZE = (224, 224)
-MODEL_PATH = "Plane_model.keras" # Model được huẩn luyện xong
-CLASS_NAMES_PATH = "class_names.json" 
-    
+MODEL_PATH = os.path.join(BASE_DIR, "model_cay_thuoc.keras") # Model được huẩn luyện xong
+CLASS_NAMES_PATH = os.path.join(BASE_DIR, "class_names.json")
 app = FastAPI() # Khởi tạo API 
 # Dùng để định nghĩa tất các đường dẫn API phía dưới
 
@@ -43,17 +48,20 @@ def load_ai_model():
     # Tải model và class names khi mở server
     global MODEL, CLASS_NAMES  #Gọi lại biến toàn cục (global là ghi đè lên biến toàn cục phía trên)
     try:
-        #  Tải Model
-        MODEL = tf.keras.models.load_model(MODEL_PATH) # Gọi model (Dựng lại mọi thứ trong model)
-        # Dọc file keras để tạo lại toàn bộ kiến trúc mạng nơron, nạp trọng số đã train
-        # Nói dễ hiểu là ta đang load cái mô hình đấy
-        
-        # Tải Class Names
+        # Bước 1: Phải đọc file danh sách tên cây TRƯỚC để biết có bao nhiêu loại cây
         with open(CLASS_NAMES_PATH, "r", encoding="utf-8") as f:
-            # Đọc file danh sách tên cây 
             CLASS_NAMES = json.load(f) # Lưu file class_names vào bộ nhớ
-
+        
+        num_classes = len(CLASS_NAMES)
         print(f"Danh sach nhan: {CLASS_NAMES}")
+        print("Đang dựng lại khung AI bằng build_model.py...")
+
+        # Bước 2: Tự xây lại kiến trúc mạng nơ-ron bằng chính code gốc của bạn
+        MODEL = create_model(num_classes)
+        
+        # Bước 3: TUYỆT CHIÊU BYPASS - Chỉ nạp trọng số (kiến thức) vào, bỏ qua config lỗi
+        MODEL.load_weights(MODEL_PATH)
+        print("✅ KHỞI ĐỘNG AI THÀNH CÔNG RỰC RỠ!")
             
     except Exception as e:
         print(f" Loi load model: {e}")
@@ -106,7 +114,7 @@ async def predict_api(file: UploadFile = File(...)):
     # cái này t test thử cái công dụng của FAST API thôi đừng quan tâm nó như comment thôi
     
     if MODEL is None:
-        return JSONResponse(status_code=500, content={"AI Model chua load"})
+        return JSONResponse(status_code=500, content={"error": "AI Model chua load"})
     # Hàm Kiểm tra lại MODEL load chưa 
     
    
@@ -118,7 +126,7 @@ async def predict_api(file: UploadFile = File(...)):
     tensor = transform_image(img_bytes) # Gọi lại hàm xử lý ảnh 
     
     if tensor is None:
-         return JSONResponse(status_code=400, content={"File anh loi"})
+         return JSONResponse(status_code=400, content={"error": "File anh loi"})
     # Nếu xử lý ảnh không được bị none thì trả về 
 
 
@@ -144,8 +152,15 @@ async def predict_api(file: UploadFile = File(...)):
     confidence = float(np.max(score))
     # Cái này trả về mức độ tin tưởng thôi thì cũng dùng hàm max của numpy cái t lấy đối số cao nhất của thằng score đó rồi chuyển qua số %
     
-    print(f" AI dự đoán: {predicted_class} ({confidence*100:.2f}%)") # Cái này t print trong terminal để check thôi 
+    print(f"👉👉👉 TEST CODE MỚI NÈ: {predicted_class} ({confidence*100:.2f}%)") 
 
+    NGUONG_TU_TIN = 0.75 # Tức là 75%
+    if confidence < NGUONG_TU_TIN:
+        return {
+            "Tên cây dự đoán: ": "Không xác định",
+            "Độ tin cậy của hệ thống:": f"{confidence * 100:.2f}%",
+            "Thông tin từ hệ thống về cây:": "Vui lòng chụp rõ lá cây, hoặc vật thể này không có trong hệ thống dữ liệu."
+        }
 
     # KẾT NỐI DATABASE ĐỂ LẤY THÔNG TIN
     plant_info = database.get_plant_info_by_label(predicted_class)
