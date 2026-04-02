@@ -61,7 +61,7 @@ def load_ai_model():
         
         # Bước 3: TUYỆT CHIÊU BYPASS - Chỉ nạp trọng số (kiến thức) vào, bỏ qua config lỗi
         MODEL.load_weights(MODEL_PATH)
-        print("✅ KHỞI ĐỘNG AI THÀNH CÔNG RỰC RỠ!")
+        print(" KHỞI ĐỘNG AI THÀNH CÔNG RỰC RỠ!")
             
     except Exception as e:
         print(f" Loi load model: {e}")
@@ -152,7 +152,7 @@ async def predict_api(file: UploadFile = File(...)):
     confidence = float(np.max(score))
     # Cái này trả về mức độ tin tưởng thôi thì cũng dùng hàm max của numpy cái t lấy đối số cao nhất của thằng score đó rồi chuyển qua số %
     
-    print(f"👉👉👉 TEST CODE MỚI NÈ: {predicted_class} ({confidence*100:.2f}%)") 
+    print(f" TEST CODE MỚI NÈ: {predicted_class} ({confidence*100:.2f}%)") 
 
     NGUONG_TU_TIN = 0.75 # Tức là 75%
     if confidence < NGUONG_TU_TIN:
