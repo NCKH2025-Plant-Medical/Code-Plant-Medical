@@ -55,14 +55,13 @@ def load_ai_model():
         
         num_classes = len(CLASS_NAMES)
         print(f"Danh sach nhan: {CLASS_NAMES}")
-        print("Đang dựng lại khung AI bằng build_model.py...")
 
         # Bước 2: Tự xây lại kiến trúc mạng nơ-ron bằng chính code gốc của bạn
         MODEL = create_model(num_classes)
         
         # Bước 3: TUYỆT CHIÊU BYPASS - Chỉ nạp trọng số (kiến thức) vào, bỏ qua config lỗi
         MODEL.load_weights(MODEL_PATH)
-        print("✅ KHỞI ĐỘNG AI THÀNH CÔNG RỰC RỠ!")
+        print(" Khởi động model thành công!")
             
     except Exception as e:
         print(f" Loi load model: {e}")
@@ -81,7 +80,7 @@ def transform_image(image_bytes):
         # Chuyển sang kênh màu vì mô hình của mình học bằng ảnh màu nên ảnh trắng đen thì chịu
         # Thật ra thì cũng không cần thiết lắm đâu nhưng mà bỏ vô cũng được
 
-        # 1. SỬA LỖI EXIF (Xoay ảnh về đúng chiều người dùng cầm điện thoại)
+        # (Xoay ảnh về đúng chiều người dùng cầm điện thoại)
         image = ImageOps.exif_transpose(image)
 
         if image.mode != "RGB":
@@ -159,7 +158,7 @@ async def predict_api(file: UploadFile = File(...)):
     confidence = float(np.max(score))
     # Cái này trả về mức độ tin tưởng thôi thì cũng dùng hàm max của numpy cái t lấy đối số cao nhất của thằng score đó rồi chuyển qua số %
     
-    print(f" TEST CODE : {predicted_class} ({confidence*100:.2f}%)") 
+    print(f"TEST: {predicted_class} ({confidence*100:.2f}%)") 
 
     NGUONG_TU_TIN = 0.75 # Tức là 75%
     if confidence < NGUONG_TU_TIN:
