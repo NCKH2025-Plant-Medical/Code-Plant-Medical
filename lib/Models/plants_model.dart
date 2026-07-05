@@ -1,4 +1,4 @@
-class Plants{
+class Plants {
   late String _name;
   late String _uses;
   late String _describe;

@@ -1,23 +1,24 @@
 import 'dart:convert';
+
 import 'package:http/http.dart' as http;
+import 'package:thunghiem1/config/app_config.dart';
 
 class ApiService {
-  final String baseUrl = "http://192.168.1.106:7000";
-
+  final String baseUrl = AppConfig.baseUrl;
 
   Future<Map<String, dynamic>> predictImage(String imagePath) async {
-    var request = http.MultipartRequest(
+    final request = http.MultipartRequest(
       'POST',
       Uri.parse('$baseUrl/predict'),
     );
     request.files.add(await http.MultipartFile.fromPath('file', imagePath));
 
-    var response = await request.send();
+    final response = await request.send();
     if (response.statusCode == 200) {
-      var respStr = await response.stream.bytesToString();
+      final respStr = await response.stream.bytesToString();
       return json.decode(respStr);
     } else {
-      throw Exception("Failed to get prediction");
+      throw Exception('Failed to get prediction');
     }
   }
 }

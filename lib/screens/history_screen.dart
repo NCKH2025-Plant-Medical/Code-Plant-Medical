@@ -1,25 +1,24 @@
-import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
-import '../Services/flutter_integration.dart';
+import 'package:thunghiem1/config/app_config.dart';
+import 'package:thunghiem1/models/image_response.dart';
+import 'package:thunghiem1/services/image_service.dart';
+import 'package:thunghiem1/theme/app_colors.dart';
 
 class ImagesListScreen extends StatefulWidget {
-  const ImagesListScreen({Key? key}) : super(key: key);
+  const ImagesListScreen({super.key});
 
   @override
   State<ImagesListScreen> createState() => _ImagesListScreenState();
 }
 
 class _ImagesListScreenState extends State<ImagesListScreen> {
-  final ImageService _imageService = ImageService(
-    baseUrl: "http://192.168.1.106:8000",
-  );
-
+  late final ImageService _imageService;
   late Future<ImagesListResponse> _imagesFuture;
 
   @override
   void initState() {
     super.initState();
+    _imageService = ImageService(baseUrl: AppConfig.baseUrl);
     _loadImages();
   }
 
@@ -27,40 +26,54 @@ class _ImagesListScreenState extends State<ImagesListScreen> {
     setState(() {
       _imagesFuture = _imageService.getAllImages(
         limit: 100,
-        orderBy: 'uploaded_at',
+        orderBy: 'captured_at',
       );
     });
   }
 
-  // Chuyển đổi base64 string thành Image widget
-  Widget _buildImageFromBase64(String base64String) {
-    try {
-      // Loại bỏ prefix "data:image/xxx;base64," nếu có
-      String cleanBase64 = base64String;
-      if (base64String.contains(',')) {
-        cleanBase64 = base64String.split(',').last;
-      }
+  Widget _buildNetworkImage(String imageUrl) {
+    final fullImageUrl = '${AppConfig.baseUrl}$imageUrl';
+    final colorScheme = Theme.of(context).colorScheme;
 
-      Uint8List bytes = base64Decode(cleanBase64);
-      return Image.memory(
-        bytes,
-        fit: BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) {
-          return const Icon(Icons.error, color: Colors.red);
-        },
-      );
-    } catch (e) {
-      return const Icon(Icons.broken_image, color: Colors.grey);
-    }
+    return Image.network(
+      fullImageUrl,
+      fit: BoxFit.cover,
+      loadingBuilder: (context, child, loadingProgress) {
+        if (loadingProgress == null) return child;
+        return Center(
+          child: CircularProgressIndicator(
+            value: loadingProgress.expectedTotalBytes != null
+                ? loadingProgress.cumulativeBytesLoaded /
+                    (loadingProgress.expectedTotalBytes ?? 1)
+                : null,
+            strokeWidth: 2,
+            color: colorScheme.primary,
+          ),
+        );
+      },
+      errorBuilder: (context, error, stackTrace) {
+        return Container(
+          color: colorScheme.surfaceContainerHighest,
+          child: Center(
+            child: Icon(
+              Icons.broken_image_rounded,
+              color: colorScheme.onSurface.withValues(alpha: 0.4),
+              size: 40,
+            ),
+          ),
+        );
+      },
+    );
   }
 
-  // Gọi hàm này khi nhấn vào ảnh
   void _showImageDetail(BuildContext context, ImageResponse image) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     showGeneralDialog(
       context: context,
       barrierDismissible: true,
       barrierLabel: '',
-      barrierColor: Colors.black54, // Làm tối nền
+      barrierColor: Colors.black54,
       transitionDuration: const Duration(milliseconds: 400),
       pageBuilder: (context, anim1, anim2) => const SizedBox(),
       transitionBuilder: (context, anim1, anim2, child) {
@@ -69,25 +82,25 @@ class _ImagesListScreenState extends State<ImagesListScreen> {
           child: Opacity(
             opacity: anim1.value,
             child: Dialog(
-              backgroundColor: Color(0xFFF8F8F8),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(32)),
+              backgroundColor: colorScheme.surface,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(32),
+              ),
               clipBehavior: Clip.antiAlias,
               child: Container(
-                constraints: const BoxConstraints(maxWidth: 400), // Giới hạn chiều rộng
+                constraints: const BoxConstraints(maxWidth: 400),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // --- Header Image Section ---
                     Stack(
                       children: [
                         AspectRatio(
                           aspectRatio: 1,
                           child: Hero(
                             tag: image.id,
-                            child: _buildImageFromBase64(image.imageBase64),
+                            child: _buildNetworkImage(image.imageUrl),
                           ),
                         ),
-                        // Nút đóng hiện đại
                         Positioned(
                           top: 16,
                           right: 16,
@@ -96,17 +109,19 @@ class _ImagesListScreenState extends State<ImagesListScreen> {
                             child: Container(
                               padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
-                                color: Colors.black.withOpacity(0.4),
+                                color: Colors.black.withValues(alpha: 0.4),
                                 shape: BoxShape.circle,
                               ),
-                              child: const Icon(Icons.close, color: Colors.white, size: 20),
+                              child: const Icon(
+                                Icons.close,
+                                color: Colors.white,
+                                size: 20,
+                              ),
                             ),
                           ),
                         ),
                       ],
                     ),
-
-                    // --- Content Section ---
                     Padding(
                       padding: const EdgeInsets.all(24.0),
                       child: Column(
@@ -118,67 +133,82 @@ class _ImagesListScreenState extends State<ImagesListScreen> {
                               Expanded(
                                 child: Text(
                                   image.id,
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 13,
                                     fontWeight: FontWeight.bold,
-                                    color: Color(0xFF1E293B),
+                                    color: colorScheme.onSurface,
                                   ),
                                 ),
                               ),
                               Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 6,
+                                ),
                                 decoration: BoxDecoration(
-                                  color: Colors.white,
+                                  color: colorScheme.surfaceContainerHighest,
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: Text(
                                   '#${image.id.split('-').last}',
                                   style: TextStyle(
-                                    color: Color.fromRGBO(94, 139, 49, 0.8),
+                                    color: AppColors.primaryVariant.withValues(
+                                      alpha: 0.8,
+                                    ),
                                     fontWeight: FontWeight.bold,
-                                    fontSize: 12,
+                                    fontSize:  12,
                                   ),
                                 ),
                               ),
                             ],
                           ),
                           const SizedBox(height: 8),
-                          const Divider(height: 32, thickness: 1),
+                          Divider(height: 32, thickness: 1, color: colorScheme.outlineVariant),
                           Row(
                             children: [
-                              Icon(Icons.date_range, size: 16, color: Colors.grey[600],),
-                              Text(" Captured at: ", style: TextStyle(
-                                fontSize: 12,
-                                letterSpacing: 0.5,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.grey[500],
-                              ),),
+                              Icon(
+                                Icons.date_range,
+                                size: 16,
+                                color: colorScheme.onSurface.withValues(alpha: 0.6),
+                              ),
+                              Text(
+                                ' Captured at: ',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  letterSpacing: 0.5,
+                                  fontWeight: FontWeight.w600,
+                                  color: colorScheme.onSurface.withValues(alpha: 0.5),
+                                ),
+                              ),
                               Text(
                                 image.capturedAt.toUpperCase(),
                                 style: TextStyle(
                                   fontSize: 12,
                                   letterSpacing: 0.5,
                                   fontWeight: FontWeight.w600,
-                                  color: Colors.grey[500],
+                                  color: colorScheme.onSurface.withValues(alpha: 0.5),
                                 ),
                               ),
                             ],
                           ),
-
                           const SizedBox(height: 20),
-                          // Nút hành động chính
                           SizedBox(
                             width: double.infinity,
                             child: ElevatedButton(
                               onPressed: () => Navigator.pop(context),
                               style: ElevatedButton.styleFrom(
-                                backgroundColor: Color.fromRGBO(94, 139, 49, 0.8),
+                                backgroundColor: AppColors.primaryVariant.withValues(alpha: 0.8),
                                 foregroundColor: Colors.white,
                                 elevation: 0,
                                 padding: const EdgeInsets.symmetric(vertical: 16),
-                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
                               ),
-                              child: const Text('Đóng', style: TextStyle(fontWeight: FontWeight.bold)),
+                              child: const Text(
+                                'Đóng',
+                                style: TextStyle(fontWeight: FontWeight.bold),
+                              ),
                             ),
                           ),
                         ],
@@ -194,14 +224,15 @@ class _ImagesListScreenState extends State<ImagesListScreen> {
     );
   }
 
-
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F8F8),
+      backgroundColor: colorScheme.surface,
       body: Column(
         children: [
-          _buildHeader(), // Custom Header thay thế AppBar
+          _buildHeader(),
           Expanded(
             child: FutureBuilder<ImagesListResponse>(
               future: _imagesFuture,
@@ -226,17 +257,18 @@ class _ImagesListScreenState extends State<ImagesListScreen> {
     );
   }
 
-  // --- UI Components ---
-
   Widget _buildHeader() {
+    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
         borderRadius: const BorderRadius.vertical(bottom: Radius.circular(32)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.05),
+            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.05),
             blurRadius: 20,
             offset: const Offset(0, 10),
           ),
@@ -252,12 +284,12 @@ class _ImagesListScreenState extends State<ImagesListScreen> {
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     'Images List',
                     style: TextStyle(
                       fontSize: 28,
                       fontWeight: FontWeight.bold,
-                      color: Color(0xFF1E293B),
+                      color: colorScheme.onSurface,
                     ),
                   ),
                   const SizedBox(height: 4),
@@ -265,7 +297,7 @@ class _ImagesListScreenState extends State<ImagesListScreen> {
                     'Danh sách ảnh đã chụp',
                     style: TextStyle(
                       fontSize: 14,
-                      color: Colors.grey[500],
+                      color: colorScheme.onSurface.withValues(alpha: 0.5),
                       fontWeight: FontWeight.w500,
                     ),
                   ),
@@ -275,8 +307,8 @@ class _ImagesListScreenState extends State<ImagesListScreen> {
                 onPressed: _loadImages,
                 icon: const Icon(Icons.refresh_rounded),
                 style: IconButton.styleFrom(
-                  backgroundColor: Colors.grey[100],
-                  foregroundColor: Color.fromRGBO(104, 169, 49, 0.8),
+                  backgroundColor: colorScheme.surfaceContainerHighest,
+                  foregroundColor: AppColors.primaryVariant.withValues(alpha: 0.8),
                 ),
               ),
             ],
@@ -301,17 +333,18 @@ class _ImagesListScreenState extends State<ImagesListScreen> {
   }
 
   Widget _buildImageCard(ImageResponse image) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return GestureDetector(
-      onTap: (){
-        _showImageDetail(context, image);
-      },
+      onTap: () => _showImageDetail(context, image),
       child: Container(
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: isDark ? AppColors.darkSurfaceVariant : AppColors.lightSurface,
           borderRadius: BorderRadius.circular(24),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.03),
+              color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.03),
               blurRadius: 10,
               offset: const Offset(0, 4),
             ),
@@ -321,9 +354,14 @@ class _ImagesListScreenState extends State<ImagesListScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
-              child: ClipRRect(
-                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-                child: _buildImageFromBase64(image.imageBase64),
+              child: SizedBox(
+                width: double.infinity,
+                child: ClipRRect(
+                  borderRadius: const BorderRadius.vertical(
+                    top: Radius.circular(24),
+                  ),
+                  child: _buildNetworkImage(image.imageUrl),
+                ),
               ),
             ),
             Padding(
@@ -335,10 +373,10 @@ class _ImagesListScreenState extends State<ImagesListScreen> {
                     image.id,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 14,
-                      color: Color(0xFF334155),
+                      color: colorScheme.onSurface,
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -348,7 +386,7 @@ class _ImagesListScreenState extends State<ImagesListScreen> {
                       fontSize: 10,
                       letterSpacing: 0.5,
                       fontWeight: FontWeight.w600,
-                      color: Colors.grey[400],
+                      color: colorScheme.onSurface.withValues(alpha: 0.4),
                     ),
                   ),
                 ],
@@ -361,18 +399,23 @@ class _ImagesListScreenState extends State<ImagesListScreen> {
   }
 
   Widget _buildLoading() {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           CircularProgressIndicator(
             strokeWidth: 3,
-            valueColor: AlwaysStoppedAnimation<Color>(Colors.indigo[400]!),
+            color: colorScheme.primary,
           ),
           const SizedBox(height: 16),
           Text(
             'Đang tải dữ liệu...',
-            style: TextStyle(color: Colors.grey[500], fontWeight: FontWeight.w500),
+            style: TextStyle(
+              color: colorScheme.onSurface.withValues(alpha: 0.5),
+              fontWeight: FontWeight.w500,
+            ),
           ),
         ],
       ),
@@ -380,6 +423,8 @@ class _ImagesListScreenState extends State<ImagesListScreen> {
   }
 
   Widget _buildError(String error) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Padding(
       padding: const EdgeInsets.all(40),
       child: Column(
@@ -389,17 +434,29 @@ class _ImagesListScreenState extends State<ImagesListScreen> {
           const SizedBox(height: 16),
           Text(
             'Rất tiếc, đã có lỗi xảy ra',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.grey[800]),
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              color: colorScheme.onSurface,
+            ),
           ),
           const SizedBox(height: 8),
-          Text(error, textAlign: TextAlign.center, style: TextStyle(color: Colors.grey[500])),
+          Text(
+            error,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: colorScheme.onSurface.withValues(alpha: 0.5),
+            ),
+          ),
           const SizedBox(height: 24),
           ElevatedButton(
             onPressed: _loadImages,
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.indigo,
+              backgroundColor: AppColors.primaryVariant.withValues(alpha: 0.8),
               foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
               padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 12),
             ),
             child: const Text('Thử lại'),
@@ -410,10 +467,26 @@ class _ImagesListScreenState extends State<ImagesListScreen> {
   }
 
   Widget _buildEmpty() {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Center(
-      child: Text(
-        'Không tìm thấy hình ảnh nào',
-        style: TextStyle(color: Colors.grey[500], fontSize: 16),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            Icons.image_not_supported_outlined,
+            size: 60,
+            color: colorScheme.onSurface.withValues(alpha: 0.3),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Không tìm thấy hình ảnh nào',
+            style: TextStyle(
+              color: colorScheme.onSurface.withValues(alpha: 0.5),
+              fontSize: 16,
+            ),
+          ),
+        ],
       ),
     );
   }
