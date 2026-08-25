@@ -3,20 +3,18 @@ import cv2
 import shutil
 import numpy as np
 import unicodedata
+from tqdm import tqdm  # Thêm thanh tiến trình siêu xịn
 
 # Vì có ảnh có tên tiếng việt nên hàm ni dùng để chuẩn hóa lại cái tên chứ tên tiếng việt nó không nhận
 def rename_file(text):
-    text_ascii = unicodedata.normalize('NFD', text).encode('ascii', 'ignore').decode('utf-8')
-    # normalize ép các chuỗi dù được viết bằng kiểu gì cũng về 1 định dạng 1
-    # NFD lệnh này thì dùng để tách hết mấy cái chữ ra thành từng mãnh luôn 
+    # Xử lý riêng chữ Đ/đ trước vì Unicode NFD không tách được ký tự này
+    text = text.replace('đ', 'd').replace('Đ', 'D')
     
-    # encode ép chuỗi unicode thành chuỗi byte cái so sánh với mã ascii mà cái mã ascii ni không có dấu
-    # vì khi gặp dấu thì nó lỗi nên dùng tham số ignore để bỏ qua luôn
-
-   # thì encode nó đổi qua kiểu byte nên t dùng decode để đổi qua lại thành tên bth để đọc
+    # Ép về ASCII và loại bỏ dấu tiếng Việt
+    text_ascii = unicodedata.normalize('NFD', text).encode('ascii', 'ignore').decode('utf-8')
+    
+    # Thay thế khoảng trắng và gạch ngang thành gạch dưới
     return text_ascii.replace(" ", "_").replace("-", "_")
-    # cái này thì trả về về cái biến trên nãy thôi với t replace mấy cái khoản trống với gạch ngang thành gạch dưới
-
 
 # Hàm này dùng để không bị vấn đề méo ảnh khi resize ảnh ớ
 def resize_with_padding(image, target_size=(224, 224), padding_color=(0, 0, 0)):
@@ -33,7 +31,8 @@ def resize_with_padding(image, target_size=(224, 224), padding_color=(0, 0, 0)):
     new_w = int(w * scale) 
     new_h = int(h * scale)
 
-    resized_image = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
+    interp = cv2.INTER_AREA if scale < 1 else cv2.INTER_CUBIC # INTER_AREA bóp nhỏ ảnh sẽ giúp giữ được đường gân lá
+    resized_image = cv2.resize(image, (new_w, new_h), interpolation=interp)
     # interpolation=cv2.INTER_CUBIC) cái này là thuật toán nội suy của thằng openCV
     # Hiểu đơn giản là cái thuật toán INTER_CUBIC là vipro nhất nên t chọn thôi, yên tâm t có tìm hiểu rồi thì cái này là hợp nhất r
 
@@ -51,66 +50,82 @@ def resize_with_padding(image, target_size=(224, 224), padding_color=(0, 0, 0)):
 
     return final_image
 
-base_dir = os.path.dirname(os.path.abspath(__file__))
-# Hàm ni t muốn lấy cái đường dẫn chuẩn chỗ t muốn làm việc thôi do nó nhảy liên tục quá 
 
+"""Nếu có viền đen như vậy thì lỡ model của mình học luôn cái viền đen đó rồi dẫn tới sai sót thì sao:
+Thì model vẫn sẽ nhận thấy các viền đen đó nhưng không sao cả nhưng nó sẽ tự động bỏ chứ không coi đó là đặc trưng của cây thuốc.
+LÍ DO 1: Mạng nơ-ron chập (CNN) học bằng cách dùng các bộ lọc (filters) để quét qua bức ảnh, nhằm tìm kiếm các đặc trưng như: đường gân lá, răng cưa ở mép lá, đốm màu, hoặc hình dáng cuống lá.
+Khi các bộ lọc của AI quét qua vùng đen này, phép nhân ma trận đa phần sẽ trả về 0. AI sẽ nhanh chóng nhận ra đây là "vùng chết" (dead space) không chứa bất kỳ thông tin hữu ích nào để học.
 
+LÍ DO 2: Viền đen sẽ gần như xuất hiện rãi rác ở khắp các label vì gần như ảnh nào cũng sẽ có, vì thế khi model
+thống kê dư liệu nó sẽ tự hiểu rằng cái viền đen này không dùng làm gì, trọng số nơ ron sẽ tự động đánh rớt cái viền đen này
+"""
 
+base_dir = os.path.dirname(os.path.abspath(__file__)) # Đang ở trong scripts/
+project_root = os.path.dirname(base_dir)              # Lùi ra thư mục gốc NCKH/
 
-
-# Trỏ chính xác vào thư mục dataset và dataset_processed bên trong NCKH
-input_folder = os.path.join(base_dir, "dataset")
-output_folder = os.path.join(base_dir, "dataset_processed")
+# Trỏ chính xác vào thư mục data (Đảm bảo bạn đã tạo thư mục data/raw_dataset và bỏ ảnh gốc vào đó)
+input_folder = os.path.join(project_root, "data", "Dataset")
+output_folder = os.path.join(project_root, "data", "dataset_processed")
 target_size = (224, 224) 
 
+
 if os.path.exists(output_folder):
-    shutil.rmtree(output_folder)
+    print(f"Đang xóa thư mục cũ: {output_folder}")
+    shutil.rmtree(output_folder) # Xóa hoàn toàn file cũ
+
 os.makedirs(output_folder, exist_ok=True)
 
-print("Bắt đầu xử lý")
+print("\nBắt đầu xử lý dữ liệu...")
 total_count = 0
+failed_files = [] # Mảng lưu các file bị lỗi để tổng kết
 
 for class_name in os.listdir(input_folder):
     class_path = os.path.join(input_folder, class_name)
 
     if os.path.isdir(class_path):
-        
         clean_class_name = rename_file(class_name)
         output_class = os.path.join(output_folder, clean_class_name)
         os.makedirs(output_class, exist_ok=True)
         
-        print(f"Xử lý file: {class_name} -> {clean_class_name}")
+        print(f"Xử lý: {class_name} -> {clean_class_name}")
 
         img_counter = 1
         
-        for filename in os.listdir(class_path):
+        # Lấy danh sách ảnh hợp lệ
+        valid_extensions = [".png", ".jpg", ".jpeg", ".bmp"]
+        image_files = [f for f in os.listdir(class_path) if os.path.splitext(f)[1].lower() in valid_extensions]
+        
+        # Dùng tqdm tại đây để hiện thanh tiến trình
+        for filename in tqdm(image_files, desc="Processing", unit="img", leave=False):
             extension = os.path.splitext(filename)[1].lower()
-            if extension in [".png", ".jpg", ".jpeg", ".bmp"]:
-                input_path = os.path.join(class_path, filename)
-                
+            input_path = os.path.join(class_path, filename)
             
-                clean_filename = f"anh_{img_counter:04d}{extension}"
-                output_path = os.path.join(output_class, clean_filename)
+            clean_filename = f"anh_{img_counter:04d}{extension}"
+            output_path = os.path.join(output_class, clean_filename)
 
-               
-                try:
-                    img_array = np.fromfile(input_path, np.uint8)
-                    image = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-                except Exception as e:
-                    print(f" Không thể đọc: {input_path} - {e}")
-                    continue
-                
-                if image is None:
-                    print(f" File hỏng hoặc không phải ảnh: {input_path}")
-                    continue
+            try:
+                img_array = np.fromfile(input_path, np.uint8)
+                image = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+            except Exception as e:
+                failed_files.append(f"{input_path} (Lỗi đọc file: {e})")
+                continue
+            
+            if image is None or image.shape[0] == 0 or image.shape[1] == 0:
+                failed_files.append(f"{input_path} (File hỏng hoặc kích thước = 0)")
+                continue
 
-                
-                final_resized = resize_with_padding(image, target_size)
-                
-               
-                cv2.imwrite(output_path, final_resized)
-                
-                img_counter += 1
-                total_count += 1
+            final_resized = resize_with_padding(image, target_size)
+            cv2.imwrite(output_path, final_resized)
+            
+            img_counter += 1
+            total_count += 1
 
-print(f"\n Đã xử lý {total_count} ảnh vào '{output_folder}'")
+print("-" * 50)
+print(f"Tổng kết: Đã xử lý {total_count} ảnh.")
+print(f"Đầu ra: {output_folder}")
+
+if failed_files:
+    print(f"\nPhát hiện {len(failed_files)} file lỗi (đã bỏ qua):")
+    for f in failed_files:
+        print(f"   - {f}")
+print("-" * 50)
