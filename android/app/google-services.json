@@ -1,0 +1,62 @@
+{
+  "project_info": {
+    "project_number": "349896709555",
+    "project_id": "forest-medicinal-plant-vision",
+    "storage_bucket": "forest-medicinal-plant-vision.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:349896709555:android:5018f6757843bb89c967c6",
+        "android_client_info": {
+          "package_name": "com.example.thunghiem1"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "349896709555-44padvfg79apialdeqoestfnl1ntp94d.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.thunghiem1",
+            "certificate_hash": "9c51badb20f8b0831e4656aac215d91567bb4e29"
+          }
+        },
+        {
+          "client_id": "349896709555-qpvdriargudsl61jiu2u7e41gvb5jndb.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.thunghiem1",
+            "certificate_hash": "6c492fe07d5d8d8274d68b6c64ce9b717019c216"
+          }
+        },
+        {
+          "client_id": "349896709555-c99ac729eksf3uorr7mc3nnbrfg7d58m.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDEuvHaSIcZssLAz5WF5lvPcs87xn9QnU0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "349896709555-c99ac729eksf3uorr7mc3nnbrfg7d58m.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "349896709555-26kp8utcvm95spvor10n0ualmisimuap.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.thunghiem1"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

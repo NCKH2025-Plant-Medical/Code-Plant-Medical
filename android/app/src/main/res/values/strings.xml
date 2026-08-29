@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Plant Vision</string>
+    <!-- Thay bằng ID Ứng dụng của bạn -->
+    <string name="facebook_app_id">928628783250566</string>
+    <!-- Thay bằng Mã ứng dụng cho máy khách (Client Token) lấy ở Cài đặt Nâng cao trên Meta Dev -->
+    <string name="facebook_client_token">abe5ac601870b8b002eda3323958f633</string>'
+    <string name="fb_login_protocol_scheme">fb928628783250566</string>
+</resources>
