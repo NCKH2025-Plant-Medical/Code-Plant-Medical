@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:thunghiem1/widgets/search_text_field.dart';
+import 'package:thunghiem1/screens/sign_in_screen.dart';
 import 'package:thunghiem1/screens/history_screen.dart';
+import 'package:thunghiem1/screens/map_screen.dart';
+import 'package:thunghiem1/screens/search_screen.dart';
+import 'package:thunghiem1/screens/sign_up_screen.dart';
 import 'package:thunghiem1/widgets/action_cards.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -87,28 +92,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(22.0, 24.0, 22.0, 0.0),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: isDark ? Colors.grey.shade800 : Colors.grey,
-                        borderRadius: BorderRadius.circular(30),
-                        boxShadow: [
-                          BoxShadow(
-                            offset: const Offset(0.02, 0.01),
-                            blurRadius: 0.7,
-                            spreadRadius: 0.2,
-                            color: isDark ? Colors.black26 : Colors.white,
-                          ),
-                        ],
-                      ),
-                      child: TextField(
-                        decoration: InputDecoration(
-                          hintText: 'Searching',
-                          hintStyle: TextStyle(
-                            color: colorScheme.onSurface.withValues(alpha: 0.5),
-                          ),
+                    child: SearchTextField(
+                      hintText: 'Searching',
+                      onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const SearchScreen(),
                         ),
-                      ),
-                    ),
+                      );
+                    },)
                   ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(30.0, 60.0, 30.0, 0.0),
@@ -129,10 +122,16 @@ class _HomeScreenState extends State<HomeScreen> {
                           },
                         ),
                         ActionCard(
-                          title: 'Chức năng 2',
+                          title: 'Plant Map',
                           subtitle: 'Hello',
                           imagePath: 'assets/img/func2.png',
-                          onTap: () {},
+                          onTap: () {
+                            Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const PlantMapScreen(),
+                            ),
+                          );},
                         ),
                       ],
                     ),
@@ -146,13 +145,26 @@ class _HomeScreenState extends State<HomeScreen> {
                           title: 'Chức năng 3',
                           subtitle: 'Hello',
                           imagePath: 'assets/img/func3.png',
-                          onTap: () {},
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => const SignInScreen(),
+                              ),
+                            );
+                          },
                         ),
                         ActionCard(
                           title: 'Chức năng 4',
                           subtitle: 'Hello',
                           imagePath: 'assets/img/func4.png',
-                          onTap: () {},
+                          onTap: () {
+                            Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const SignUpScreen(),
+                            ),
+                          );},
                         ),
                       ],
                     ),

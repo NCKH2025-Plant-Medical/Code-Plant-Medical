@@ -12,11 +12,12 @@ class MainShell extends StatefulWidget {
 }
 
 class _MainShellState extends State<MainShell> {
+  // index 0=Home, 1=Setting, 2=Account (camera không nằm trong stack)
   int _currentIndex = 0;
 
+  // IndexedStack giữ state tab Home/Setting/Account khi chuyển qua lại
   final List<Widget> _screens = const [
     HomeScreen(),
-    CameraScreen(),
     SettingScreen(),
     AccountScreen(),
   ];
@@ -24,17 +25,23 @@ class _MainShellState extends State<MainShell> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: _screens[_currentIndex],
+      body: IndexedStack(
+        index: _currentIndex,
+        children: _screens,
+      ),
       bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
+        // Camera ở giữa (index 1 trong nav bar) nhưng currentIndex không nhảy vào
+        currentIndex: _currentIndex >= 1 ? _currentIndex + 1 : _currentIndex,
         onTap: (index) {
           if (index == 1) {
+            // Camera tab → push, không thay đổi _currentIndex
             Navigator.push(
               context,
               MaterialPageRoute(builder: (context) => const CameraScreen()),
             );
           } else {
-            setState(() => _currentIndex = index);
+            // 0 → Home (stack index 0), 2 → Setting (stack index 1), 3 → Account (stack index 2)
+            setState(() => _currentIndex = index > 1 ? index - 1 : index);
           }
         },
         items: const [

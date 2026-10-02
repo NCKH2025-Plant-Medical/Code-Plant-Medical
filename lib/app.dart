@@ -15,16 +15,26 @@ class PlantVisionApp extends StatelessWidget {
       listenable: themeNotifier,
       builder: (context, _) {
         final brightness = _resolveBrightness(themeNotifier.themeMode);
-        _applySystemUiOverlay(brightness);
+        final isDark = brightness == Brightness.dark;
 
-        return ThemeScope(
-          notifier: themeNotifier,
-          child: MaterialApp(
-            debugShowCheckedModeBanner: false,
-            theme: AppTheme.light,
-            darkTheme: AppTheme.dark,
-            themeMode: themeNotifier.themeMode,
-            home: const MainShell(),
+        final overlayStyle = SystemUiOverlayStyle(
+          statusBarColor: Colors.transparent,
+          statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
+          statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
+        );
+
+        // Dùng AnnotatedRegion thay vì gọi SystemChrome trong build()
+        return AnnotatedRegion<SystemUiOverlayStyle>(
+          value: overlayStyle,
+          child: ThemeScope(
+            notifier: themeNotifier,
+            child: MaterialApp(
+              debugShowCheckedModeBanner: false,
+              theme: AppTheme.light,
+              darkTheme: AppTheme.dark,
+              themeMode: themeNotifier.themeMode,
+              home: const MainShell(),
+            ),
           ),
         );
       },
@@ -40,17 +50,6 @@ class PlantVisionApp extends StatelessWidget {
       case ThemeMode.system:
         return WidgetsBinding.instance.platformDispatcher.platformBrightness;
     }
-  }
-
-  void _applySystemUiOverlay(Brightness brightness) {
-    final isDark = brightness == Brightness.dark;
-    SystemChrome.setSystemUIOverlayStyle(
-      SystemUiOverlayStyle(
-        statusBarColor: Colors.transparent,
-        statusBarIconBrightness: isDark ? Brightness.light : Brightness.dark,
-        statusBarBrightness: isDark ? Brightness.dark : Brightness.light,
-      ),
-    );
   }
 }
 
