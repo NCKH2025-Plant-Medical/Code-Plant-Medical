@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:thunghiem1/widgets/search_text_field.dart';
-import 'package:thunghiem1/screens/sign_in_screen.dart';
 import 'package:thunghiem1/screens/history_screen.dart';
 import 'package:thunghiem1/screens/map_screen.dart';
 import 'package:thunghiem1/screens/search_screen.dart';
-import 'package:thunghiem1/screens/sign_up_screen.dart';
 import 'package:thunghiem1/widgets/action_cards.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -145,26 +143,13 @@ class _HomeScreenState extends State<HomeScreen> {
                           title: 'Chức năng 3',
                           subtitle: 'Hello',
                           imagePath: 'assets/img/func3.png',
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => const SignInScreen(),
-                              ),
-                            );
-                          },
+                          onTap: () {},
                         ),
                         ActionCard(
                           title: 'Chức năng 4',
                           subtitle: 'Hello',
                           imagePath: 'assets/img/func4.png',
-                          onTap: () {
-                            Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const SignUpScreen(),
-                            ),
-                          );},
+                          onTap: () {},
                         ),
                       ],
                     ),

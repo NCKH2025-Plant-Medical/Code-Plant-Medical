@@ -1,9 +1,26 @@
-import 'package:flutter/material.dart';
-import 'package:thunghiem1/widgets/search_text_field.dart';
-import 'package:thunghiem1/theme/app_colors.dart';
-import 'package:thunghiem1/widgets/back_nav_button.dart';
+// lib/screens/map_screen.dart
+//
+// Màn hình Bản đồ GPS tích hợp đầy đủ:
+//  ✅ Google Maps (GoogleMapWidget)
+//  ✅ Xin quyền định vị, focus current location
+//  ✅ onCameraIdle + Debounce 500ms
+//  ✅ Future.wait gọi đồng thời 2 API (system + user plants)
+//  ✅ Cluster Marker (ClusterManager)
+//  ✅ Custom Icons pre-loaded (tránh jank)
+//  ✅ Partial Failure → Toast
+//  ✅ Permission Denied → Default location + Banner "Bật vị trí"
+//  ✅ Mất mạng → Load cache + Snackbar đỏ
+//  ✅ Provider quản lý state (MapNotifier)
 
-enum MapUiState { loaded, empty, loading, error }
+import 'package:flutter/material.dart';
+import 'package:fluttertoast/fluttertoast.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:provider/provider.dart';
+
+import 'package:thunghiem1/controllers/map_notifier.dart';
+import 'package:thunghiem1/theme/app_colors.dart';
+import 'package:thunghiem1/widgets/search_text_field.dart';
+import 'package:thunghiem1/widgets/back_nav_button.dart';
 
 class PlantMapScreen extends StatefulWidget {
   const PlantMapScreen({super.key});
@@ -13,60 +30,116 @@ class PlantMapScreen extends StatefulWidget {
 }
 
 class _PlantMapScreenState extends State<PlantMapScreen> {
-  MapUiState _uiState = MapUiState.loading;
+  late final MapNotifier _notifier;
 
   @override
   void initState() {
     super.initState();
-    _loadMapData();
-  }
-
-  Future<void> _loadMapData() async {
-    setState(() => _uiState = MapUiState.loading);
-
-    // Giả lập thời gian call API / load map
-    await Future.delayed(const Duration(seconds: 2));
-
-    if (mounted) {
-      setState(() => _uiState = MapUiState.loaded);
-    }
+    // Tạo notifier và khởi tạo (xin quyền + pre-load icons)
+    _notifier = MapNotifier();
+    _notifier.addListener(_handleNotifierChange);
+    _notifier.initialize
+      ();
   }
 
   @override
+  void dispose() {
+    _notifier.removeListener(_handleNotifierChange);
+    _notifier.dispose();
+    super.dispose();
+  }
+
+  // ── Lắng nghe state changes ───────────────────────────────────────────────
+
+  void _handleNotifierChange() {
+    if (!mounted) return;
+
+    // Partial failure → fluttertoast
+    if (_notifier.partialError != null) {
+      Fluttertoast.showToast(
+        msg: _notifier.partialError!,
+        backgroundColor: Colors.orange.shade800,
+        textColor: Colors.white,
+        gravity: ToastGravity.TOP,
+        toastLength: Toast.LENGTH_LONG,
+      );
+    }
+
+    // Offline → Snackbar đỏ
+    if (_notifier.isOffline) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Row(
+              children: [
+                Icon(Icons.wifi_off, color: Colors.white, size: 18),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Không có mạng – đang hiển thị dữ liệu đã lưu',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.red.shade700,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      });
+    }
+  }
+
+  // ── Build ─────────────────────────────────────────────────────────────────
+
+  @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      body: Stack(
-        children: [
-          // 1. LỚP DƯỚI CÙNG: Bản đồ lấp đầy toàn màn hình
-          Positioned.fill(
-            child: _buildMapBackground(),
-          ),
+    return ChangeNotifierProvider<MapNotifier>.value(
+      value: _notifier,
+      child: Scaffold(
+        backgroundColor: Theme.of(context).colorScheme.surface,
+        body: Stack(
+          children: [
+            // 1. Google Maps lấp đầy màn hình
+            const Positioned.fill(child: _GoogleMapLayer()),
 
-          // 2. LỚP Ở GIỮA: Các thẻ thông báo trạng thái (Empty, Loading, Error)
-          if (_uiState == MapUiState.empty) _buildEmptyOverlay(),
-          if (_uiState == MapUiState.loading) _buildLoadingOverlay(),
-          if (_uiState == MapUiState.error) _buildErrorOverlay(),
+            // 2. Banner cảnh báo mất quyền định vị
+            const _LocationPermissionBanner(),
 
-          // 3. LỚP DƯỚI ĐÁY (Bottom): Thẻ thông tin cây khi load thành công
-          if (_uiState == MapUiState.loaded) _buildLoadedOverlay(),
+            // 3. Loading overlay nhỏ gọn (không block map)
+            const _LoadingIndicator(),
 
-          // 4. LỚP TRÊN CÙNG: Header (Tiêu đề + Thanh tìm kiếm) đè lên map
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: _buildHeader(),
-          ),
-        ],
+            // 4. Header (Search + Title) đè lên map
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: _buildHeader(),
+            ),
+
+            // 5. FAB My Location
+            const Positioned(
+              bottom: 24,
+              right: 16,
+              child: _MyLocationFab(),
+            ),
+
+            // 6. Legend (chú thích màu)
+            const Positioned(
+              bottom: 80,
+              left: 16,
+              child: _MapLegend(),
+            ),
+          ],
+        ),
       ),
-      // FAB debug đã xóa
     );
   }
 
-  // ==========================================
-  // HEADER WIDGET (Tiêu đề + Thanh tìm kiếm)
-  // ==========================================
+  // ── Header ─────────────────────────────────────────────────────────────────
+
   Widget _buildHeader() {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
@@ -74,7 +147,8 @@ class _PlantMapScreenState extends State<PlantMapScreen> {
       width: double.infinity,
       decoration: BoxDecoration(
         color: isDark ? AppColors.darkSurface : Colors.white,
-        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(25)),
+        borderRadius:
+            const BorderRadius.vertical(bottom: Radius.circular(25)),
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.08),
@@ -90,7 +164,6 @@ class _PlantMapScreenState extends State<PlantMapScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              // Hàng tiêu đề
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -99,7 +172,6 @@ class _PlantMapScreenState extends State<PlantMapScreen> {
                     height: 40,
                     child: BackNavButton(),
                   ),
-
                   Text(
                     'Plant Map',
                     style: TextStyle(
@@ -108,25 +180,34 @@ class _PlantMapScreenState extends State<PlantMapScreen> {
                       color: AppColors.primary,
                     ),
                   ),
-
-                  Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: AppColors.primary,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.person,
-                      color: Colors.white,
-                      size: 20,
+                  // Nút làm mới thủ công
+                  Consumer<MapNotifier>(
+                    builder: (_, notifier, __) => Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: AppColors.primary,
+                        shape: BoxShape.circle,
+                      ),
+                      child: notifier.loadState == MapLoadState.loading
+                          ? const Padding(
+                              padding: EdgeInsets.all(8),
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                                strokeWidth: 2,
+                              ),
+                            )
+                          : IconButton(
+                              padding: EdgeInsets.zero,
+                              icon: const Icon(Icons.refresh,
+                                  color: Colors.white, size: 18),
+                              onPressed: notifier.retry,
+                            ),
                     ),
                   ),
                 ],
               ),
               const SizedBox(height: 16),
-
-              // Thanh tìm kiếm — heroTag riêng để không trùng với Home
               SearchTextField(
                 hintText: 'Tìm kiếm cây trồng....',
                 heroTag: 'search_bar_map',
@@ -137,282 +218,283 @@ class _PlantMapScreenState extends State<PlantMapScreen> {
       ),
     );
   }
+}
 
-  // ==========================================
-  // BACKGROUND MAP (Giả lập bản đồ)
-  // ==========================================
-  Widget _buildMapBackground() {
+// ── Google Map Layer ──────────────────────────────────────────────────────────
+
+class _GoogleMapLayer extends StatelessWidget {
+  const _GoogleMapLayer();
+
+  @override
+  Widget build(BuildContext context) {
+    final notifier = context.watch<MapNotifier>();
+
+    return GoogleMap(
+      initialCameraPosition: notifier.initialCamera,
+      markers: notifier.markers,
+      myLocationEnabled: notifier.permissionState == MapPermissionState.granted,
+      myLocationButtonEnabled: false, // dùng FAB tuỳ chỉnh
+      zoomControlsEnabled: false,
+      mapToolbarEnabled: false,
+      onMapCreated: notifier.onMapCreated,
+      onCameraIdle: notifier.onCameraIdle,
+      onCameraMoveStarted: notifier.onCameraMoveStarted,
+    );
+  }
+}
+
+// ── Permission Banner ─────────────────────────────────────────────────────────
+
+class _LocationPermissionBanner extends StatelessWidget {
+  const _LocationPermissionBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    final notifier = context.watch<MapNotifier>();
+
+    if (!notifier.showLocationBanner) return const SizedBox.shrink();
+
+    return Positioned(
+      bottom: 0,
+      left: 0,
+      right: 0,
+      child: SafeArea(
+        top: false,
+        child: Container(
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.orange.shade800,
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.2),
+                blurRadius: 12,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.location_off, color: Colors.white, size: 28),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Chưa có quyền định vị',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 14,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      notifier.permissionState ==
+                              MapPermissionState.deniedForever
+                          ? 'Vào Cài đặt để cấp quyền vị trí cho ứng dụng'
+                          : 'Đang hiển thị bản đồ mặc định (Hà Nội)',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.85),
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              TextButton(
+                onPressed: notifier.permissionState ==
+                        MapPermissionState.deniedForever
+                    ? notifier.openLocationSettings
+                    : notifier.initialize, // thử lại xin quyền
+                style: TextButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: Colors.orange.shade800,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                child: Text(
+                  notifier.permissionState == MapPermissionState.deniedForever
+                      ? 'Bật vị trí'
+                      : 'Cấp quyền',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 12,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── Loading Indicator ─────────────────────────────────────────────────────────
+
+class _LoadingIndicator extends StatelessWidget {
+  const _LoadingIndicator();
+
+  @override
+  Widget build(BuildContext context) {
+    final notifier = context.watch<MapNotifier>();
+
+    if (notifier.loadState != MapLoadState.loading) {
+      return const SizedBox.shrink();
+    }
+
+    return Positioned(
+      top: 160, // dưới header
+      left: 0,
+      right: 0,
+      child: Center(
+        child: Container(
+          padding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            color: Colors.white.withValues(alpha: 0.95),
+            borderRadius: BorderRadius.circular(30),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.12),
+                blurRadius: 8,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: AppColors.primary,
+                ),
+              ),
+              SizedBox(width: 10),
+              Text(
+                'Đang tải dữ liệu...',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.primary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── My Location FAB ───────────────────────────────────────────────────────────
+
+class _MyLocationFab extends StatelessWidget {
+  const _MyLocationFab();
+
+  @override
+  Widget build(BuildContext context) {
+    final notifier = context.watch<MapNotifier>();
+
+    return FloatingActionButton.small(
+      heroTag: 'map_location_fab',
+      onPressed: notifier.permissionState == MapPermissionState.granted
+          ? () => notifier.initialize() // re-focus vị trí
+          : notifier.openLocationSettings,
+      backgroundColor: Colors.white,
+      elevation: 4,
+      child: Icon(
+        notifier.permissionState == MapPermissionState.granted
+            ? Icons.my_location
+            : Icons.location_disabled,
+        color: notifier.permissionState == MapPermissionState.granted
+            ? AppColors.primary
+            : Colors.grey,
+        size: 20,
+      ),
+    );
+  }
+}
+
+// ── Map Legend ────────────────────────────────────────────────────────────────
+
+class _MapLegend extends StatelessWidget {
+  const _MapLegend();
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Container(
-      width: double.infinity,
-      height: double.infinity,
-      color: const Color(0xFFE5E3DF),
-      child: Stack(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: isDark
+            ? AppColors.darkSurface.withValues(alpha: 0.95)
+            : Colors.white.withValues(alpha: 0.95),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Positioned(
-            top: 150, left: -50,
-            child: Container(width: 500, height: 80, color: Colors.blueAccent.withValues(alpha: 0.3)),
+          _LegendItem(
+            color: const Color(0xFF1565C0),
+            label: 'Cây hệ thống',
           ),
-          Positioned(
-            bottom: -50, right: 80,
-            child: Container(width: 120, height: 600, color: Colors.blueAccent.withValues(alpha: 0.3)),
-          ),
-          Center(
-            child: Text(
-              _uiState == MapUiState.loading
-                  ? ''
-                  : 'Bản đồ thực tế sẽ hiển thị full màn hình',
-              style: TextStyle(color: Colors.black.withValues(alpha: 0.3)),
-            ),
+          const SizedBox(height: 6),
+          _LegendItem(
+            color: const Color(0xFFE65100),
+            label: 'Cây cá nhân',
           ),
         ],
       ),
     );
   }
+}
 
-  // ==========================================
-  // LỚP OVERLAY 1: THÀNH CÔNG (Có thẻ cây bên dưới)
-  // ==========================================
-  Widget _buildLoadedOverlay() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+class _LegendItem extends StatelessWidget {
+  final Color color;
+  final String label;
 
-    return Positioned(
-      bottom: 24,
-      left: 20,
-      right: 20,
-      child: Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: isDark ? AppColors.darkSurface : Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.15),
-              blurRadius: 20,
-              offset: const Offset(0, 10),
-            ),
-          ],
+  const _LegendItem({required this.color, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 12,
+          height: 12,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
-        child: Row(
-          children: [
-            // Hình ảnh cây
-            ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Container(
-                width: 60,
-                height: 60,
-                color: Colors.green.shade200,
-                child: Image.network(
-                  'https://upload.wikimedia.org/wikipedia/commons/thumb/6/69/Artemisia_vulgaris_1.jpg/640px-Artemisia_vulgaris_1.jpg',
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) =>
-                  const Icon(Icons.eco, color: Colors.green),
-                ),
-              ),
-            ),
-            const SizedBox(width: 16),
-            // Thông tin cây
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.fiber_manual_record, color: Colors.blue, size: 10),
-                      const SizedBox(width: 4),
-                      Text(
-                        'MỚI PHÁT HIỆN',
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.blue.shade700,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Cây Ngải Cứu',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Theme.of(context).colorScheme.onSurface,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Row(
-                    children: [
-                      Icon(
-                          Icons.location_on,
-                          size: 12,
-                          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5)
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        'Cách bạn 200m',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.5),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            color: Theme.of(context).colorScheme.onSurface,
+          ),
         ),
-      ),
-    );
-  }
-
-  // ==========================================
-  // LỚP OVERLAY 2: TRỐNG (Empty)
-  // ==========================================
-  Widget _buildEmptyOverlay() {
-    return _buildCenterCard(
-      icon: Icons.search_rounded,
-      iconColor: AppColors.primaryVariant,
-      iconBgColor: AppColors.primaryVariant.withValues(alpha: 0.1),
-      title: 'Chưa có cây nào được ghi\nnhận',
-      description: 'Khu vực này chưa có dữ liệu. Hãy là người\nđầu tiên ghi nhận một cây trồng.',
-    );
-  }
-
-  // ==========================================
-  // LỚP OVERLAY 3: ĐANG TẢI (Loading)
-  // ==========================================
-  Widget _buildLoadingOverlay() {
-    return _buildCenterCard(
-      customIcon: CircularProgressIndicator(
-        strokeWidth: 3,
-        color: AppColors.primaryVariant,
-      ),
-      title: 'Đang tải bản đồ...',
-      description: 'Đang cập nhật dữ liệu cây trồng\nquanh bạn',
-    );
-  }
-
-  // ==========================================
-  // LỚP OVERLAY 4: LỖI (Error)
-  // ==========================================
-  Widget _buildErrorOverlay() {
-    return _buildCenterCard(
-      icon: Icons.wifi_off_rounded,
-      iconColor: Colors.redAccent,
-      iconBgColor: Colors.redAccent.withValues(alpha: 0.1),
-      title: 'Không thể tải bản đồ',
-      description: 'Kết nối có thể đang gián đoạn. Vui lòng\nkiểm tra mạng và thử lại.',
-      buttonText: 'Thử lại',
-      onButtonPressed: _loadMapData,
-    );
-  }
-
-  // ==========================================
-  // COMPONENT CHUNG CHO THẺ CĂN GIỮA
-  // ==========================================
-  Widget _buildCenterCard({
-    IconData? icon,
-    Widget? customIcon,
-    Color? iconColor,
-    Color? iconBgColor,
-    required String title,
-    required String description,
-    String? buttonText,
-    VoidCallback? onButtonPressed,
-  }) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final colorScheme = Theme.of(context).colorScheme;
-
-    return Center(
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 40),
-        padding: const EdgeInsets.all(32),
-        decoration: BoxDecoration(
-          color: isDark ? AppColors.darkSurface : Colors.white.withValues(alpha: 0.95),
-          borderRadius: BorderRadius.circular(24),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.15),
-              blurRadius: 30,
-              offset: const Offset(0, 15),
-            ),
-          ],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Icon
-            if (customIcon != null)
-              customIcon
-            else if (icon != null)
-              Container(
-                width: 80,
-                height: 80,
-                decoration: BoxDecoration(
-                  color: iconBgColor,
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(icon, size: 40, color: iconColor),
-              ),
-
-            const SizedBox(height: 24),
-
-            // Tiêu đề
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: colorScheme.onSurface,
-                height: 1.3,
-              ),
-            ),
-
-            const SizedBox(height: 12),
-
-            // Mô tả
-            Text(
-              description,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 13,
-                color: colorScheme.onSurface.withValues(alpha: 0.5),
-                height: 1.5,
-              ),
-            ),
-
-            // Nút bấm (nếu có)
-            if (buttonText != null && onButtonPressed != null) ...[
-              const SizedBox(height: 24),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: onButtonPressed,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primaryVariant,
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(24),
-                    ),
-                  ),
-                  child: Text(
-                    buttonText,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 15,
-                    ),
-                  ),
-                ),
-              ),
-            ]
-          ],
-        ),
-      ),
+      ],
     );
   }
 }

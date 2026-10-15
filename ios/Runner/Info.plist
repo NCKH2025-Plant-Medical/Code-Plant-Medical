@@ -2,6 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 	<dict>
+		<key>NSAppTransportSecurity</key>
+		<dict>
+			<key>NSAllowsArbitraryLoads</key>
+			<true/>
+		</dict>
 		<key>CFBundleDevelopmentRegion</key>
 		<string>$(DEVELOPMENT_LANGUAGE)</string>
 		<key>CFBundleDisplayName</key>
@@ -47,5 +52,47 @@
 		<true/>
 		<key>UIStatusBarHidden</key>
 		<false/>
+
+		<!-- Google Sign-In & Facebook URL Schemes -->
+		<key>CFBundleURLTypes</key>
+		<array>
+			<!-- Google Sign-In: REVERSED_CLIENT_ID from google-services.json (client_type=3) -->
+			<dict>
+				<key>CFBundleTypeRole</key>
+				<string>Editor</string>
+				<key>CFBundleURLSchemes</key>
+				<array>
+					<string>com.googleusercontent.apps.349896709555-c99ac729eksf3uorr7mc3nnbrfg7d58m</string>
+				</array>
+			</dict>
+			<!-- Facebook Login -->
+			<dict>
+				<key>CFBundleTypeRole</key>
+				<string>Editor</string>
+				<key>CFBundleURLSchemes</key>
+				<array>
+					<string>fb951298307574958</string>
+				</array>
+			</dict>
+		</array>
+
+		<!-- Facebook SDK -->
+		<key>FacebookAppID</key>
+		<string>951298307574958</string>
+		<key>FacebookClientToken</key>
+		<string>c0140a7ed34bc153b6f2991e303edd48</string>
+		<key>FacebookDisplayName</key>
+		<string>Plant Vision</string>
+
+		<!-- Facebook app queries -->
+		<key>LSApplicationQueriesSchemes</key>
+		<array>
+			<string>fbapi</string>
+			<string>fbapi20130214</string>
+			<string>fbauth2</string>
+			<string>fb-messenger-share-api</string>
+			<string>fbauth</string>
+			<string>fb</string>
+		</array>
 	</dict>
 </plist>

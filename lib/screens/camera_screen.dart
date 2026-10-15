@@ -1,3 +1,4 @@
+import 'package:thunghiem1/widgets/error_dialog.dart';
 import 'dart:async';
 
 import 'package:camerawesome/camerawesome_plugin.dart';
@@ -64,12 +65,7 @@ class _CameraScreenState extends State<CameraScreen> {
 
     if (error != null) {
       final msg = error.toString().replaceAll('Exception: ', '');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(msg),
-          backgroundColor: Colors.red,
-        ),
-      );
+      showErrorDialog(context, msg, title: 'Lỗi');
       return;
     }
 
@@ -82,37 +78,7 @@ class _CameraScreenState extends State<CameraScreen> {
     if (isUnknown) {
       final message = result?['message']?.toString() ??
           'Không nhận diện được. Vui lòng thử lại với ảnh rõ hơn.';
-      await showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (ctx) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: const Row(
-            children: [
-              Icon(Icons.info_outline_rounded, color: Color(0xFF2D6A4F)),
-              SizedBox(width: 8),
-              Text('Không nhận diện được',
-                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
-            ],
-          ),
-          content: Text(message, style: const TextStyle(fontSize: 14, height: 1.5)),
-          actions: [
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () => Navigator.of(ctx).pop(),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF1B5E20),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12)),
-                ),
-                child: const Text('Chấp nhận',
-                    style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-              ),
-            ),
-          ],
-        ),
-      );
+      await showErrorDialog(context, message, title: 'Không nhận diện được');
       return; // Ở lại màn hình camera, không navigate
     }
 
@@ -136,12 +102,7 @@ class _CameraScreenState extends State<CameraScreen> {
       await _handleCapture(context, picked.path);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Lỗi khi chọn ảnh: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      showErrorDialog(context, e.toString(), title: 'Lỗi');
     }
   }
 

@@ -1,3 +1,4 @@
+import 'package:thunghiem1/widgets/error_dialog.dart' as thunghiem1_dialog;
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:thunghiem1/services/auth_service.dart';
@@ -32,17 +33,14 @@ class _SignUpScreenState extends State<SignUpScreen> {
   Future<void> _signUp() async {
     final email = _emailController.text.trim();
     final password = _passwordController.text.trim();
-    final confirmPassword = _confirmPasswordController.text.trim();
+    
 
-    if (email.isEmpty || password.isEmpty || confirmPassword.isEmpty) {
+    if (email.isEmpty || password.isEmpty) {
       _showMessage('Vui lòng nhập đầy đủ thông tin', Colors.orange);
       return;
     }
 
-    if (password != confirmPassword) {
-      _showMessage('Mật khẩu xác nhận không khớp', Colors.red);
-      return;
-    }
+    
 
     if (password.length < 6) {
       _showMessage('Mật khẩu phải có ít nhất 6 ký tự', Colors.orange);
@@ -66,13 +64,14 @@ class _SignUpScreenState extends State<SignUpScreen> {
   }
 
   void _showMessage(String message, Color bgColor) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: bgColor,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+    if (!mounted) return;
+    String title = 'Thông báo';
+    if (bgColor == Colors.red || bgColor == Colors.orange) {
+      title = 'Lỗi đăng ký';
+    } else if (bgColor == Colors.green) {
+      title = 'Thành công';
+    }
+    thunghiem1_dialog.showErrorDialog(context, message, title: title);
   }
 
   @override
@@ -230,29 +229,6 @@ class _SignUpScreenState extends State<SignUpScreen> {
                     const SizedBox(height: 16),
 
                     // Xác nhận mật khẩu
-                    const Text(
-                      'Xác nhận mật khẩu',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.black87,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    StandardTextField(
-                      hintText: '••••••••',
-                      controller: _confirmPasswordController,
-                      obscureText: _obscureConfirmPassword,
-                      prefixIcon: Icon(Icons.highlight_off, size: 20, color: Colors.grey.shade500),
-                      suffixIcon: IconButton(
-                        icon: Icon(
-                          _obscureConfirmPassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-                          size: 20,
-                          color: Colors.grey.shade500,
-                        ),
-                        onPressed: () => setState(() => _obscureConfirmPassword = !_obscureConfirmPassword),
-                      ),
-                    ),
                     const SizedBox(height: 28),
 
                     // Nút Đăng ký (PrimaryButton)

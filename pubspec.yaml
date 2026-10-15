@@ -21,10 +21,22 @@ dependencies:
   google_sign_in: ^7.2.0
   shared_preferences: ^2.5.3
   http: ^1.4.0
+  flutter_secure_storage: ^9.2.2
+  flutter_facebook_auth: ^7.1.1
+  provider: ^6.1.2
+  pinput: ^5.0.0
   image_picker: ^1.1.2
   http_parser: ^4.0.2
   path_provider: ^2.1.5
   marquee: ^2.3.0
+  # ── Map & Location ──────────────────────────────────────────
+  google_maps_flutter: ^2.10.0
+  geolocator: ^13.0.2
+  # ── Network & Cache ─────────────────────────────────────────
+  connectivity_plus: ^6.1.4
+  fluttertoast: ^8.2.12
+  # ── App Settings Navigation ──────────────────────────────────
+  app_settings: ^5.1.1
 
 flutter_launcher_icons:
   android: true
@@ -49,6 +61,7 @@ flutter:
   assets:
     - assets/img/Banner.jpg
     - assets/img/
+    - assets/markers/
 
   uses-material-design: true
 
