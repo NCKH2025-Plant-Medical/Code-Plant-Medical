@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Plant Vision</string>
+    <!-- Facebook SDK -->
+    <string name="facebook_app_id">951298307574958</string>
+    <string name="fb_login_protocol_scheme" translatable="false">fb951298307574958</string>
+    <string name="facebook_client_token">c0140a7ed34bc153b6f2991e303edd48</string>
+</resources>
