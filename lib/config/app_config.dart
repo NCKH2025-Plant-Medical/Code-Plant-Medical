@@ -49,6 +49,34 @@ class AppConfig {
     defaultValue: 'http://222.255.184.116',
   );
 
+  /// UID dùng cho API Vườn Dược Liệu.
+  ///
+  /// Server hiện chạy ở **chế độ demo** (`HERBAL_GARDEN_REQUIRE_AUTH=false`):
+  /// mọi người thấy chung một vườn mẫu 5 cây để demo đầy đủ mọi loại chip &
+  /// badge. Vườn mẫu được seed dưới uid = `demo`.
+  ///
+  /// Có thể ghi đè:
+  ///   • `--dart-define=GARDEN_UID=demo`      → vườn mẫu dùng chung (mặc định)
+  ///   • `--dart-define=GARDEN_UID=account`   → mỗi tài khoản một vườn riêng
+  ///   • `--dart-define=GARDEN_UID=<uid>`     → uid bất kỳ
+  ///
+  /// ⚠️ Khi backend bật `HERBAL_GARDEN_REQUIRE_AUTH=true`, `uid` trong query
+  /// sẽ bị server **bỏ qua hoàn toàn** và lấy uid từ `Authorization: Bearer`.
+  static const gardenUid = String.fromEnvironment(
+    'GARDEN_UID',
+    defaultValue: 'demo',
+  );
+
+  /// Bật vườn riêng cho từng tài khoản đăng nhập.
+  ///
+  /// `false` (mặc định) → mọi người dùng chung vườn mẫu `demo` (chế độ demo
+  /// của backend). `true` → dùng `user_id` của account làm uid, mỗi người
+  /// một vườn riêng (vườn mới sẽ trống cho tới khi họ thêm cây).
+  static const gardenPerUser = bool.fromEnvironment(
+    'GARDEN_PER_USER',
+    defaultValue: false,
+  );
+
   /// Base URL riêng cho API xác thực (`/api/auth/*`).
   ///
   /// Server hiện tại đã tách router auth ra khỏi app chính, nên biến này

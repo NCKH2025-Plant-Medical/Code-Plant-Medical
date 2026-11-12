@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:thunghiem1/controllers/auth_notifier.dart';
+import 'package:thunghiem1/controllers/garden_notifier.dart';
 import 'package:thunghiem1/screens/shell/main_shell.dart';
 import 'package:thunghiem1/theme/app_theme.dart';
 import 'package:thunghiem1/theme/theme_notifier.dart';
@@ -24,6 +25,10 @@ class PlantVisionApp extends StatelessWidget {
         // the lazy:false flag so the token check happens immediately.
         ChangeNotifierProvider<AuthNotifier>(
           create: (_) => AuthNotifier()..init(),
+        ),
+        // Vườn Dược Liệu — state dùng chung cho màn hình vườn & chi tiết cây.
+        ChangeNotifierProvider<GardenNotifier>(
+          create: (_) => GardenNotifier(),
         ),
       ],
       child: ListenableBuilder(

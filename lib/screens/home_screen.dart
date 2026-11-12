@@ -8,6 +8,7 @@ import 'package:thunghiem1/screens/map_screen.dart';
 import 'package:thunghiem1/screens/search_screen.dart';
 import 'package:thunghiem1/screens/chat_ai_screen.dart';
 import 'package:thunghiem1/screens/account_screen.dart';
+import 'package:thunghiem1/screens/garden/garden_screen.dart';
 import 'package:thunghiem1/widgets/action_cards.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -255,10 +256,17 @@ class _HomeScreenState extends State<HomeScreen> {
                       children: [
                         Expanded(
                           child: ActionCard(
-                            title: 'Chức năng 3',
-                            subtitle: 'Hello',
-                            icon: Icons.grid_view_rounded,
-                            onTap: () {},
+                            title: 'Vườn Dược Liệu',
+                            subtitle: 'Theo dõi cây',
+                            icon: Icons.yard_rounded,
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => const GardenScreen(),
+                                ),
+                              );
+                            },
                           ),
                         ),
                         const SizedBox(width: 16),
