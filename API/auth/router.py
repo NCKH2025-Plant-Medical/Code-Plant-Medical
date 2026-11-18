@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+import hashlib
 from typing import Optional
 
 from bson import ObjectId
@@ -65,11 +67,17 @@ class TokenResponse(BaseModel):
 # Helper
 # ===========================================================================
 
-def _make_token(user_id: ObjectId) -> TokenResponse:
+async def _make_token(user_id: ObjectId) -> TokenResponse:
     """Tạo cặp Access Token (15 phút) + Refresh Token (30 ngày) cho user."""
     sub = str(user_id)
     access_token = create_access_token({"sub": sub})
     refresh_token = create_refresh_token({"sub": sub})
+    sessions = get_user_collection().database.refresh_sessions
+    await sessions.create_index("expires_at", expireAfterSeconds=0)
+    await sessions.insert_one({
+        "_id": hashlib.sha256(refresh_token.encode()).hexdigest(), "user_id": sub,
+        "expires_at": datetime.fromtimestamp(decode_refresh_token(refresh_token)["exp"], tz=timezone.utc),
+    })
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
@@ -174,7 +182,7 @@ async def register(body: RegisterRequest):
     result = await collection.insert_one(new_user)
 
     # --- Step 4: Return JWT ---
-    return _make_token(result.inserted_id)
+    return await _make_token(result.inserted_id)
 
 
 # ---------------------------------------------------------------------------
@@ -208,7 +216,7 @@ async def login(body: LoginRequest):
             detail="Invalid username or password.",
         )
 
-    return _make_token(user["_id"])
+    return await _make_token(user["_id"])
 
 
 # ---------------------------------------------------------------------------
@@ -246,7 +254,7 @@ async def social_login(body: SocialLoginRequest):
         if update_fields:
             await collection.update_one({"_id": user["_id"]}, {"$set": update_fields})
             
-        return _make_token(user["_id"])
+        return await _make_token(user["_id"])
 
     # New social user – create a minimal account with no local password
     new_user = {
@@ -261,7 +269,7 @@ async def social_login(body: SocialLoginRequest):
     }
     result = await collection.insert_one(new_user)
 
-    return _make_token(result.inserted_id)
+    return await _make_token(result.inserted_id)
 
 # ---------------------------------------------------------------------------
 
@@ -300,6 +308,7 @@ async def logout(current_user: dict = Depends(get_current_user)):
     # The ``get_current_user`` dependency should then reject any token whose
     # ``jti`` appears in that blacklist.
     """
+    await get_user_collection().database.refresh_sessions.delete_many({"user_id": str(current_user["_id"])})
     return {"detail": "Successfully logged out."}
 
 
@@ -408,5 +417,11 @@ async def refresh_access_token(body: RefreshTokenRequest):
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    return _make_token(user["_id"])
+    consumed = await collection.database.refresh_sessions.find_one_and_delete({
+        "_id": hashlib.sha256(body.refresh_token.encode()).hexdigest(),
+        "user_id": user_id_str,
+    })
+    if consumed is None:
+        raise HTTPException(status_code=401, detail="Refresh token revoked or already used")
+    return await _make_token(user["_id"])
 

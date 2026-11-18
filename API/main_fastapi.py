@@ -28,6 +28,16 @@ except ImportError:
     from API import database
 
 try:
+    import app_catalog
+except ImportError:
+    from API import app_catalog
+
+try:
+    from review_feedback import router as review_feedback_router, prediction_tokens
+except ImportError:
+    from API.review_feedback import router as review_feedback_router, prediction_tokens
+
+try:
     from AI_Core.load_model import load_ai_model, transform_image, get_top_predictions
 except ImportError:
     from load_model import load_ai_model, transform_image, get_top_predictions
@@ -63,11 +73,14 @@ class PlantPrediction(BaseModel):
     scientific_name: Optional[str] = None  # Tên khoa học (ten_quocte)
     confidence: Optional[str] = None
     image_url: Optional[str] = None
+    warnings: List[dict] = []
 
 class PredictResponse(BaseModel):
     status: str                      # "success" hoặc "unknown"
     predictions: List[PlantPrediction] = []
     message: Optional[str] = None
+    prediction_id: Optional[str] = None
+    feedback_token: Optional[str] = None
 
 class PlantDetailResponse(BaseModel):
     common_name: str
@@ -77,6 +90,11 @@ class PlantDetailResponse(BaseModel):
     how_to_use: Optional[str] = None
     precautions: Optional[str] = None
     image_url: Optional[str] = None
+    family: Optional[str] = None
+    parts_used: Optional[str] = None
+    contraindications: Optional[str] = None
+    source_reference: Optional[str] = None
+    warnings: List[dict] = []
 
 
 class SearchResponse(BaseModel):
@@ -143,18 +161,40 @@ except ImportError:
     from API.user_plants.router import router as user_plants_router
 
 try:
-    from system_plants.router import router as system_plants_router
+    from system_plants.map_system_plants_router import router as system_plants_router
 except ImportError:
-    from API.system_plants.router import router as system_plants_router
+    from API.system_plants.map_system_plants_router import router as system_plants_router
+
+try:
+    from routing.map_routing_router import router as routing_router
+except ImportError:
+    from API.routing.map_routing_router import router as routing_router
+
+try:
+    from nearby.map_nearby_router import router as nearby_router
+except ImportError:
+    from API.nearby.map_nearby_router import router as nearby_router
+
+try:
+    from search_events import router as search_events_router
+except ImportError:
+    from API.search_events import router as search_events_router
 
 app.include_router(auth_router)
 app.include_router(user_plants_router)
 app.include_router(system_plants_router)
+app.include_router(routing_router)
+app.include_router(nearby_router)
+app.include_router(search_events_router)
+app.include_router(review_feedback_router)
+
 
 def _build_image_url(anh_minh_hoa: Optional[str]) -> Optional[str]:
     """Ghép tên file ảnh thành URL đầy đủ."""
     if not anh_minh_hoa:
         return None
+    if anh_minh_hoa.startswith("https://"):
+        return anh_minh_hoa
     return f"{IMAGE_BASE_URL}/static/plants/{anh_minh_hoa}"
 
 
@@ -222,22 +262,31 @@ async def predict_api(file: UploadFile = File(...)):
     top_matches = get_top_predictions(predictions[0], CLASS_NAMES, k=TOP_K)
     top1_label, top1_confidence = top_matches[0]
 
+    labels_only = [label for label, _ in top_matches]
+    plant_rows = await asyncio.get_running_loop().run_in_executor(
+        None, database.get_top_matches, labels_only
+    )
+    top3 = [
+        {"plant_id": int(plant_rows[label]["ID"]), "confidence": float(confidence)}
+        for label, confidence in top_matches if label in plant_rows
+    ]
+    prediction_id, feedback_token = prediction_tokens(
+        img_bytes, top3, os.getenv("MODEL_VERSION", "unknown")
+    )
+
     print(f"Dự đoán hàng đầu: {top1_label} ({top1_confidence * 100:.2f}%)")
 
     if top1_confidence < CONFIDENCE_THRESHOLD:
         return PredictResponse(
             status="unknown",
             predictions=[],
+            prediction_id=prediction_id,
+            feedback_token=feedback_token,
             message=(
                 "Vui lòng chụp rõ lá cây, hoặc vật thể này "
                 "không có trong hệ thống dữ liệu."
             ),
         )
-
-    labels_only = [label for label, _ in top_matches]
-    plant_rows = await asyncio.get_running_loop().run_in_executor(
-        None, database.get_top_matches, labels_only
-    )
 
     predictions_list = []
     for label, confidence in top_matches:
@@ -252,9 +301,13 @@ async def predict_api(file: UploadFile = File(...)):
             scientific_name=_clean_scientific_name(row.get("ten_quocte")),
             confidence=f"{confidence * 100:.2f}%",
             image_url=_build_image_url(row.get("anh_minh_hoa")),
+            warnings=app_catalog.published_warnings(row["ID"]),
         ))
 
-    return PredictResponse(status="success", predictions=predictions_list)
+    return PredictResponse(
+        status="success", predictions=predictions_list,
+        prediction_id=prediction_id, feedback_token=feedback_token,
+    )
 
 # ---------------------------------------------------------------------------
 # GET /api/v1/plants/search — Live Search (QUAN TRỌNG: khai báo TRƯỜC /{plant_id})
@@ -275,9 +328,12 @@ async def search_plants_api(
             detail="Tham số 'q' không được chỉ chứa khoảng trắng.",
         )
 
-    rows = await asyncio.get_running_loop().run_in_executor(
-        None, database.search_plants, q_stripped, limit
-    )
+    try:
+        rows = await asyncio.get_running_loop().run_in_executor(
+            None, database.search_plants, q_stripped, limit
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail="Không thể tìm kiếm lúc này.") from exc
 
     results: List[PlantPrediction] = [
         PlantPrediction(
@@ -286,6 +342,7 @@ async def search_plants_api(
             scientific_name=_clean_scientific_name(row.get("ten_quocte")),
             confidence=None,
             image_url=_build_image_url(row.get("anh_minh_hoa")),
+            warnings=app_catalog.published_warnings(row["ID"]),
         )
         for row in rows
     ]
@@ -335,6 +392,12 @@ async def get_plant_detail(plant_id: str):
             detail=f"Không tìm thấy dữ liệu cho cây có ID '{plant_id}'.",
         )
 
+    details = await asyncio.get_running_loop().run_in_executor(
+        None, app_catalog.published_profile_details, plant_info["ID"]
+    )
+    warnings = await asyncio.get_running_loop().run_in_executor(
+        None, app_catalog.published_warnings, plant_info["ID"]
+    )
     return PlantDetailResponse(
         common_name=plant_info.get("Tên cây") or plant_id,
         scientific_name=_clean_scientific_name(plant_info.get("Tên quốc tế")),
@@ -343,4 +406,9 @@ async def get_plant_detail(plant_id: str):
         how_to_use=plant_info.get("Cách dùng"),
         precautions=plant_info.get("Lưu ý"),
         image_url=_build_image_url(plant_info.get("anh_minh_hoa")),
+        family=details.get("family"),
+        parts_used=details.get("parts_used"),
+        contraindications=details.get("contraindications"),
+        source_reference=details.get("source_reference"),
+        warnings=warnings,
     )

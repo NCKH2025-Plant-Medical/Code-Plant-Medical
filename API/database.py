@@ -1,14 +1,19 @@
 import os
 import re
 import unicodedata
+from pathlib import Path
+from dotenv import load_dotenv
 import mysql.connector
 from mysql.connector import pooling, Error
+
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 # ---------------------------------------------------------------------------
 # Database Configuration & Pool Initialization
 # ---------------------------------------------------------------------------
 _DB_CONFIG = {
     "host": os.getenv("DB_HOST", "localhost"),
+    "port": int(os.getenv("DB_PORT", "3306")),
     "user": os.getenv("DB_USER", "plant_api"),
     "password": os.getenv("DB_PASSWORD", "MatKhauAPI_TuyetMat_2026"),
     "database": os.getenv("DB_NAME", "plant_project"),
@@ -39,11 +44,16 @@ except Error as err:
 # ---------------------------------------------------------------------------
 _HAS_IS_DELETED: bool = False
 _HAS_TEN_CAY_NORMALIZED: bool = False
+_HAS_IS_PROTECTED: bool = False
+_HAS_PROTECTION_LEVEL: bool = False
+_HAS_FUZZING_RADIUS: bool = False
+_HAS_CONSERVATION_NOTES: bool = False
 
 
 def _detect_schema() -> None:
-    """Kiểm tra cột is_deleted và ten_cay_normalized trong plant_medical."""
-    global _HAS_IS_DELETED, _HAS_TEN_CAY_NORMALIZED
+    """Kiểm tra các cột mở rộng trong plant_medical (is_deleted, bảo tồn, v.v.)."""
+    global _HAS_IS_DELETED, _HAS_TEN_CAY_NORMALIZED, _HAS_IS_PROTECTED
+    global _HAS_PROTECTION_LEVEL, _HAS_FUZZING_RADIUS, _HAS_CONSERVATION_NOTES
     if _DB_POOL is None:
         return
     conn = cur = None
@@ -54,15 +64,19 @@ def _detect_schema() -> None:
             "SELECT COLUMN_NAME FROM information_schema.COLUMNS "
             "WHERE TABLE_SCHEMA = DATABASE() "
             "AND TABLE_NAME = 'plant_medical' "
-            "AND COLUMN_NAME IN ('is_deleted', 'ten_cay_normalized')"
+            "AND COLUMN_NAME IN ('is_deleted', 'ten_cay_normalized', 'is_protected', 'protection_level', 'fuzzing_radius_meters', 'conservation_notes')"
         )
         cols = {row[0] for row in cur.fetchall()}
         _HAS_IS_DELETED = "is_deleted" in cols
         _HAS_TEN_CAY_NORMALIZED = "ten_cay_normalized" in cols
+        _HAS_IS_PROTECTED = "is_protected" in cols
+        _HAS_PROTECTION_LEVEL = "protection_level" in cols
+        _HAS_FUZZING_RADIUS = "fuzzing_radius_meters" in cols
+        _HAS_CONSERVATION_NOTES = "conservation_notes" in cols
         print(
             f"[database.py] Schema check: "
             f"is_deleted={'FOUND' if _HAS_IS_DELETED else 'NOT FOUND'}, "
-            f"ten_cay_normalized={'FOUND' if _HAS_TEN_CAY_NORMALIZED else 'NOT FOUND'}"
+            f"is_protected={'FOUND' if _HAS_IS_PROTECTED else 'NOT FOUND'}"
         )
     except Error as e:
         print(f"[database.py] Schema detect error: {e}")
@@ -170,6 +184,9 @@ def _get_plant_search_names(row: dict) -> list[str]:
         if a_norm:
             names.append(a_norm)
 
+    # Alias do chuyên gia công bố trong admin, không đọc bản nháp.
+    names.extend(row.get("_published_aliases", []))
+
     # Khử trùng lặp giữ nguyên thứ tự
     seen: set[str] = set()
     unique_names: list[str] = []
@@ -199,7 +216,7 @@ def get_plant_info_by_label(predicted_class: str) -> dict | None:
         cursor = connection.cursor(dictionary=True)
 
         sql = (
-            "SELECT ten_cay, ten_quocte, thong_tin, cong_dung, cach_dung, luu_y, anh_minh_hoa "
+            "SELECT ID, ten_cay, ten_quocte, thong_tin, cong_dung, cach_dung, luu_y, anh_minh_hoa "
             "FROM plant_medical "
             f"WHERE ten_label = %s {_WHERE_ACTIVE}"
         )
@@ -218,6 +235,7 @@ def get_plant_info_by_label(predicted_class: str) -> dict | None:
 
     if result is not None:
         return {
+            "ID": result.get("ID"),
             "Tên cây": result.get("ten_cay"),
             "Tên quốc tế": result.get("ten_quocte"),
             "Thông tin": result.get("thong_tin"),
@@ -251,7 +269,7 @@ def get_top_matches(labels: list[str]) -> dict:
 
         placeholders = ", ".join(["%s"] * len(labels))
         sql = (
-            f"SELECT ten_label, ten_cay, ten_quocte, anh_minh_hoa "
+            f"SELECT ID, ten_label, ten_cay, ten_quocte, anh_minh_hoa "
             f"FROM plant_medical "
             f"WHERE ten_label IN ({placeholders}) {_WHERE_ACTIVE}"
         )
@@ -288,7 +306,7 @@ def search_plants(keyword: str, limit: int = 10) -> list[dict]:
     """
     if _DB_POOL is None:
         print("[database.py] ERROR: Connection pool is not available.")
-        return []
+        raise RuntimeError("Plant search is unavailable")
 
     q_raw = (keyword or "").strip()
     if not q_raw:
@@ -305,7 +323,7 @@ def search_plants(keyword: str, limit: int = 10) -> list[dict]:
         connection = _DB_POOL.get_connection()
         cursor = connection.cursor(dictionary=True)
 
-        cols = "ten_label, ten_cay, ten_quocte, cong_dung, thong_tin, cach_dung, anh_minh_hoa"
+        cols = "ID, ten_label, ten_cay, ten_quocte, cong_dung, thong_tin, cach_dung, anh_minh_hoa"
         if _HAS_TEN_CAY_NORMALIZED:
             cols += ", ten_cay_normalized"
         sql = f"SELECT {cols} FROM plant_medical WHERE 1=1 {_WHERE_ACTIVE}"
@@ -313,6 +331,14 @@ def search_plants(keyword: str, limit: int = 10) -> list[dict]:
         rows = cursor.fetchall()
         if not rows:
             return []
+
+        try:
+            import app_catalog
+        except ImportError:
+            from API import app_catalog
+        aliases = app_catalog.published_aliases(row["ID"] for row in rows)
+        for row in rows:
+            row["_published_aliases"] = aliases.get(row["ID"], [])
 
         # Bước 2: So sánh input đã chuẩn hóa để tìm Full Match
         full_matches: list[dict] = []
@@ -325,6 +351,7 @@ def search_plants(keyword: str, limit: int = 10) -> list[dict]:
             match = full_matches[0]
             print(f"[database.py] search_plants: FULL MATCH for '{q_norm}' -> '{match.get('ten_label')}'")
             return [{
+                "ID": match["ID"],
                 "ten_label": match["ten_label"],
                 "ten_cay": match.get("ten_cay"),
                 "ten_quocte": match.get("ten_quocte"),
@@ -359,6 +386,7 @@ def search_plants(keyword: str, limit: int = 10) -> list[dict]:
         max_limit = min(limit, _SEARCH_MAX_LIMIT) if limit else 10
         results = [
             {
+                "ID": item[2]["ID"],
                 "ten_label": item[2]["ten_label"],
                 "ten_cay": item[2].get("ten_cay"),
                 "ten_quocte": item[2].get("ten_quocte"),
@@ -369,9 +397,9 @@ def search_plants(keyword: str, limit: int = 10) -> list[dict]:
         print(f"[database.py] search_plants: PARTIAL MATCH ({len(results)} plants) for '{q_norm}'")
         return results
 
-    except Error as err:
+    except (Error, RuntimeError) as err:
         print(f"[database.py] search_plants error for keyword '{keyword}': {err}")
-        return []
+        raise RuntimeError("Plant search is unavailable") from err
     finally:
         if cursor is not None:
             cursor.close()
@@ -480,15 +508,19 @@ def get_system_plants_in_bounds(
                 pm.ten_quocte,
                 pm.thong_tin,
                 pm.anh_minh_hoa,
-                spl.latitude,
-                spl.longitude,
-                spl.address_name
+                (CASE WHEN COALESCE(pm.is_protected, 1) = 0 THEN FLOOR(spl.latitude / 0.01) * 0.01 + 0.005 ELSE FLOOR(spl.latitude / 0.1) * 0.1 + 0.05 END) AS latitude,
+                (CASE WHEN COALESCE(pm.is_protected, 1) = 0 THEN FLOOR(spl.longitude / 0.01) * 0.01 + 0.005 ELSE FLOOR(spl.longitude / 0.1) * 0.1 + 0.05 END) AS longitude,
+                NULL AS address_name,
+                COALESCE(pm.is_protected, 1) AS is_protected,
+                pm.protection_level,
+                8000 AS fuzzing_radius_meters,
+                pm.conservation_notes
             FROM system_plant_locations AS spl
             INNER JOIN plant_medical AS pm
                 ON spl.plant_id = pm.ID
             WHERE
-                spl.latitude  BETWEEN %s AND %s
-                AND spl.longitude BETWEEN %s AND %s
+                (CASE WHEN COALESCE(pm.is_protected, 1) = 0 THEN FLOOR(spl.latitude / 0.01) * 0.01 + 0.005 ELSE FLOOR(spl.latitude / 0.1) * 0.1 + 0.05 END) BETWEEN %s AND %s
+                AND (CASE WHEN COALESCE(pm.is_protected, 1) = 0 THEN FLOOR(spl.longitude / 0.01) * 0.01 + 0.005 ELSE FLOOR(spl.longitude / 0.1) * 0.1 + 0.05 END) BETWEEN %s AND %s
                 {where_active}
             ORDER BY spl.id
             LIMIT %s
@@ -514,4 +546,170 @@ def get_system_plants_in_bounds(
         if cursor is not None:
             cursor.close()
         if connection is not None:
-            connection.close()
+            connection.close()
+
+
+# ---------------------------------------------------------------------------
+# 6. get_system_plants_nearby — Lấy cây hệ thống trong bán kính (Haversine)
+# ---------------------------------------------------------------------------
+def get_system_plants_nearby(
+    lat: float,
+    lng: float,
+    radius_km: float = 3.0,
+    limit: int = 50,
+) -> list[dict]:
+    """Tìm các cây hệ thống trong bán kính radius_km quanh điểm (lat, lng).
+    Sử dụng công thức Haversine cầu trực tiếp trong MySQL để tính khoảng cách chính xác.
+    """
+    if _DB_POOL is None:
+        print("[database.py] ERROR: Connection pool is not available.")
+        return []
+
+    connection = None
+    cursor = None
+    try:
+        connection = _DB_POOL.get_connection()
+        cursor = connection.cursor(dictionary=True)
+
+        sql = """
+            SELECT
+                spl.id AS location_id,
+                spl.plant_id,
+                pm.ten_label,
+                pm.ten_cay,
+                pm.ten_quocte,
+                pm.thong_tin,
+                pm.anh_minh_hoa,
+                (CASE WHEN COALESCE(pm.is_protected, 1) = 0 THEN FLOOR(spl.latitude / 0.01) * 0.01 + 0.005 ELSE FLOOR(spl.latitude / 0.1) * 0.1 + 0.05 END) AS latitude,
+                (CASE WHEN COALESCE(pm.is_protected, 1) = 0 THEN FLOOR(spl.longitude / 0.01) * 0.01 + 0.005 ELSE FLOOR(spl.longitude / 0.1) * 0.1 + 0.05 END) AS longitude,
+                NULL AS address_name,
+                COALESCE(pm.is_protected, 1) AS is_protected,
+                pm.protection_level,
+                8000 AS fuzzing_radius_meters,
+                pm.conservation_notes,
+                (6371.0 * acos(
+                    LEAST(1.0, GREATEST(-1.0,
+                        cos(radians(%s)) * cos(radians((CASE WHEN COALESCE(pm.is_protected, 1) = 0 THEN FLOOR(spl.latitude / 0.01) * 0.01 + 0.005 ELSE FLOOR(spl.latitude / 0.1) * 0.1 + 0.05 END))) *
+                        cos(radians((CASE WHEN COALESCE(pm.is_protected, 1) = 0 THEN FLOOR(spl.longitude / 0.01) * 0.01 + 0.005 ELSE FLOOR(spl.longitude / 0.1) * 0.1 + 0.05 END)) - radians(%s)) +
+                        sin(radians(%s)) * sin(radians((CASE WHEN COALESCE(pm.is_protected, 1) = 0 THEN FLOOR(spl.latitude / 0.01) * 0.01 + 0.005 ELSE FLOOR(spl.latitude / 0.1) * 0.1 + 0.05 END)))
+                    ))
+                )) AS distance_km
+            FROM system_plant_locations AS spl
+            INNER JOIN plant_medical AS pm
+                ON spl.plant_id = pm.ID
+            WHERE 1=1 {where_active}
+            HAVING distance_km <= %s
+            ORDER BY distance_km ASC
+            LIMIT %s
+        """.format(
+            where_active=(
+                "AND pm.is_deleted = 0" if _HAS_IS_DELETED else ""
+            )
+        )
+
+        cursor.execute(sql, (lat, lng, lat, radius_km, limit))
+        rows = cursor.fetchall()
+        print(
+            f"[database.py] get_system_plants_nearby: "
+            f"lat={lat}, lng={lng}, r={radius_km}km -> {len(rows)} cay"
+        )
+        return rows
+
+
+    except Error as err:
+        print(f"[database.py] get_system_plants_nearby error: {err}")
+        return []
+    finally:
+        if cursor is not None:
+            cursor.close()
+        if connection is not None:
+            connection.close()
+
+
+
+# ---------------------------------------------------------------------------
+# Conservation & Spatial Fuzzing Helpers
+# ---------------------------------------------------------------------------
+
+def stable_fuzz_coordinates(
+    latitude: float,
+    longitude: float,
+    radius_meters: float = 800.0,
+    seed: int | str = 1,
+) -> tuple[float, float]:
+    """
+    Làm mờ tọa độ GPS theo thuật toán Stable Spatial Fuzzing (xác định theo seed).
+    Tọa độ kết quả nằm trong khoảng cách radius_meters so với tọa độ gốc,
+    nhưng cố định, không bao giờ thay đổi giữa các lần truy vấn với cùng seed.
+    """
+    if radius_meters <= 0:
+        return latitude, longitude
+
+    import hashlib
+    import math
+
+    h = hashlib.sha256(str(seed).encode("utf-8")).digest()
+    angle_val = int.from_bytes(h[:2], "big")
+    angle = (angle_val / 65535.0) * 2.0 * math.pi
+
+    dist_val = int.from_bytes(h[2:4], "big")
+    dist = (0.5 + 0.5 * (dist_val / 65535.0)) * radius_meters
+
+    delta_lat = (dist * math.cos(angle)) / 111320.0
+    cos_lat = math.cos(math.radians(latitude))
+    if abs(cos_lat) < 1e-6:
+        cos_lat = 1.0
+    delta_lng = (dist * math.sin(angle)) / (111320.0 * cos_lat)
+
+    return round(latitude + delta_lat, 7), round(longitude + delta_lng, 7)
+
+
+def update_plant_protection(
+    plant_id: int | str,
+    is_protected: bool,
+    protection_level: str | None = None,
+    fuzzing_radius_meters: int = 800,
+    conservation_notes: str | None = None,
+    updated_by: str | None = None,
+) -> bool:
+    """Cập nhật trạng thái bảo tồn cây thuốc dành cho Web Admin."""
+    if _DB_POOL is None:
+        return False
+    connection = None
+    cursor = None
+    try:
+        connection = _DB_POOL.get_connection()
+        cursor = connection.cursor()
+
+        sql = """
+            UPDATE plant_medical
+            SET is_protected = %s,
+                protection_level = %s,
+                fuzzing_radius_meters = %s,
+                conservation_notes = %s,
+                updated_by = %s,
+                protected_at = NOW()
+            WHERE ID = %s OR ten_label = %s
+        """
+        cursor.execute(
+            sql,
+            (
+                1 if is_protected else 0,
+                protection_level,
+                fuzzing_radius_meters,
+                conservation_notes,
+                updated_by,
+                str(plant_id),
+                str(plant_id),
+            ),
+        )
+        connection.commit()
+        return cursor.rowcount > 0
+    except Exception as err:
+        print(f"[database.py] update_plant_protection error: {err}")
+        return False
+    finally:
+        if cursor is not None:
+            cursor.close()
+        if connection is not None:
+            connection.close()

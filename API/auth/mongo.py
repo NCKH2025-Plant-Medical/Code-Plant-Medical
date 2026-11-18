@@ -13,7 +13,7 @@ if not MONGO_DETAILS:
 
 # Khởi tạo client kết nối Motor
 client = AsyncIOMotorClient(MONGO_DETAILS)
-database = client.plant_vision_db
+database = client[os.getenv("MONGO_DB", "plant_vision_db")]
 
 def get_user_collection():
     """Hàm lấy collection users để dùng ở các router"""

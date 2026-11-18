@@ -27,8 +27,9 @@ import asyncio
 import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Query, status
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException, Query, status, Depends
+from pydantic import BaseModel, Field
+from API.auth.utils import require_admin
 
 try:
     import database
@@ -48,7 +49,7 @@ _MAP_RESULT_LIMIT = 500   # Tối đa 500 điểm trên bản đồ / request
 class SystemPlantMapItem(BaseModel):
     """
     Item cây hệ thống hiển thị trên bản đồ.
-    Khớp với hợp đồng API trong map_api_contract.md để Flutter không cần sửa code.
+    Hỗ trợ cờ bảo tồn & thông tin vùng bảo tồn để bảo vệ cây quý hiếm.
     """
     id: str                          # ten_label (khóa định danh cây — dùng để gọi /plants/{id})
     location_id: Optional[int] = None # Khóa định danh tọa độ riêng biệt của từng cây
@@ -56,9 +57,14 @@ class SystemPlantMapItem(BaseModel):
     scientific_name: Optional[str] = None   # ten_quocte
     description: Optional[str] = None       # thong_tin (rút gọn 200 ký tự)
     image_url: Optional[str] = None         # URL ảnh đầy đủ
-    latitude: float
+    latitude: float                         # Tọa độ thật (nếu bình thường) hoặc tâm vùng mờ (nếu bảo tồn)
     longitude: float
     address_name: Optional[str] = None      # Tên địa danh / vườn dược liệu
+    is_protected: bool = False              # True nếu là cây bảo tồn / quý hiếm
+    protection_level: Optional[str] = None  # Sách Đỏ EN, CR, VU, Nhóm IA, v.v.
+    fuzzing_radius_meters: Optional[int] = None # Bán kính vùng làm mờ (mét)
+    conservation_notes: Optional[str] = None # Lời dặn bảo tồn / cảnh báo pháp lý
+    is_exact_location: bool = True          # False nếu tọa độ đã bị làm mờ (chỉ là tâm vùng)
 
 
 # ── Endpoint ──────────────────────────────────────────────────────────────────
@@ -149,16 +155,35 @@ async def get_system_plants_map(
         thong_tin = row.get("thong_tin") or ""
         short_desc = thong_tin[:200].rstrip() + "..." if len(thong_tin) > 200 else thong_tin or None
 
+        is_prot = bool(row.get("is_protected"))
+        orig_lat = float(row["latitude"])
+        orig_lng = float(row["longitude"])
+        fuzz_radius = int(row.get("fuzzing_radius_meters") or 800)
+
+        # Bảo mật tọa độ cây quý hiếm (Spatial Fuzzing)
+        if is_prot:
+            final_lat, final_lng = orig_lat, orig_lng
+            is_exact = False
+        else:
+            final_lat = orig_lat
+            final_lng = orig_lng
+            is_exact = False
+
         result.append(SystemPlantMapItem(
             id=row["ten_label"],
             location_id=row.get("location_id"),
             name=row.get("ten_cay") or row["ten_label"],
             scientific_name=row.get("ten_quocte"),
-            description=short_desc,
+            description=None if is_prot else short_desc,
             image_url=image_url,
-            latitude=float(row["latitude"]),
-            longitude=float(row["longitude"]),
+            latitude=final_lat,
+            longitude=final_lng,
             address_name=row.get("address_name"),
+            is_protected=is_prot,
+            protection_level=row.get("protection_level"),
+            fuzzing_radius_meters=fuzz_radius if is_prot else None,
+            conservation_notes="Cây quý hiếm cần bảo tồn. Chỉ công bố vùng phân bố khái quát; không cung cấp điểm cây hoặc hướng dẫn tìm kiếm." if is_prot else None,
+            is_exact_location=is_exact,
         ))
 
     logger.info(
@@ -167,3 +192,53 @@ async def get_system_plants_map(
     )
 
     return result
+
+
+# ── Admin Web Endpoint: Quản lý Bảo tồn cây thuốc ──────────────────────────
+
+class PlantProtectionUpdateRequest(BaseModel):
+    is_protected: bool
+    protection_level: Optional[str] = None
+    fuzzing_radius_meters: int = Field(default=8000, ge=8000, le=8000)
+    conservation_notes: Optional[str] = None
+    updated_by: Optional[str] = "admin"
+
+
+@router.patch(
+    "/{plant_id}/protection",
+    summary="Cập nhật trạng thái bảo tồn cây dược liệu (Dành cho Web Admin)",
+    description=(
+        "Cho phép Quản trị viên Web Admin bật/tắt thủ công chế độ bảo tồn, "
+        "chọn cấp độ bảo vệ (Sách Đỏ, Nhóm IA/IIA) và thiết lập bán kính làm mờ tọa độ."
+    ),
+)
+async def update_plant_protection_endpoint(
+    plant_id: str,
+    payload: PlantProtectionUpdateRequest,
+    admin: dict = Depends(require_admin),
+):
+    ok = await asyncio.get_running_loop().run_in_executor(
+        None,
+        database.update_plant_protection,
+        plant_id,
+        payload.is_protected,
+        payload.protection_level,
+        payload.fuzzing_radius_meters,
+        payload.conservation_notes,
+        str(admin["_id"]),
+    )
+    if not ok:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Không tìm thấy cây có ID hoặc label '{plant_id}'",
+        )
+    return {
+        "success": True,
+        "message": f"Đã cập nhật trạng thái bảo tồn cho cây '{plant_id}'",
+        "data": {
+            "plant_id": plant_id,
+            "is_protected": payload.is_protected,
+            "protection_level": payload.protection_level,
+            "fuzzing_radius_meters": payload.fuzzing_radius_meters,
+        },
+    }

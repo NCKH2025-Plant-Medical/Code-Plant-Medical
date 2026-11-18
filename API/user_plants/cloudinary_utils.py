@@ -15,18 +15,38 @@
 import os
 import logging
 from typing import Optional
+from pathlib import Path
+from dotenv import load_dotenv
 import cloudinary
 import cloudinary.uploader
 
 logger = logging.getLogger(__name__)
 
-# ── Cấu hình Cloudinary từ biến môi trường ───────────────────────────────────
-cloudinary.config(
-    cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
-    api_key=os.getenv("CLOUDINARY_API_KEY"),
-    api_secret=os.getenv("CLOUDINARY_API_SECRET"),
-    secure=True,  # Luôn dùng HTTPS
-)
+# Resolve .env relative to the project, independently of the server working directory.
+# Environment supplied by the deployment always takes precedence.
+load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=False)
+
+
+def _configure_cloudinary() -> None:
+    # Configure when used, rather than freezing credentials at module import.
+    # Preserve CLOUDINARY_URL support provided by the SDK.
+    options = {"secure": True}
+    for key, env_name in (
+        ("cloud_name", "CLOUDINARY_CLOUD_NAME"),
+        ("api_key", "CLOUDINARY_API_KEY"),
+        ("api_secret", "CLOUDINARY_API_SECRET"),
+    ):
+        value = os.getenv(env_name, "").strip()
+        if value:
+            options[key] = value
+    config = cloudinary.config(**options)
+    if not all((config.cloud_name, config.api_key, config.api_secret)):
+        raise RuntimeError(
+            "Máy chủ chưa cấu hình đầy đủ Cloudinary. "
+            "Cần CLOUDINARY_URL hoặc CLOUDINARY_CLOUD_NAME, "
+            "CLOUDINARY_API_KEY và CLOUDINARY_API_SECRET."
+        )
+
 
 # Folder lưu ảnh cây người dùng trên Cloudinary
 _UPLOAD_FOLDER = "plant_vision/user_plants"
@@ -77,11 +97,7 @@ def upload_plant_image(
     Raises:
         Exception: Khi Cloudinary từ chối upload hoặc cấu hình thiếu.
     """
-    # Kiểm tra cấu hình trước khi upload
-    if not os.getenv("CLOUDINARY_CLOUD_NAME"):
-        raise Exception(
-            "Chưa cấu hình Cloudinary. Kiểm tra biến CLOUDINARY_CLOUD_NAME trong .env."
-        )
+    _configure_cloudinary()
 
     # Kiểm tra kích thước file
     file_size_mb = len(file_bytes) / (1024 * 1024)
@@ -144,6 +160,7 @@ def delete_plant_image(public_id: str) -> bool:
         True nếu xóa thành công, False nếu ảnh không tồn tại hoặc lỗi.
     """
     try:
+        _configure_cloudinary()
         result = cloudinary.uploader.destroy(public_id)
         success = result.get("result") == "ok"
         if success:

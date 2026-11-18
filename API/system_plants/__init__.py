@@ -1,1 +1,1 @@
-# API/system_plants/__init__.py
+from .map_system_plants_router import router

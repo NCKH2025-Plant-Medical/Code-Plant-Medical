@@ -118,6 +118,17 @@ class PaginatedHistoryResponse(BaseModel):
     items: List[UserPlantHistoryItem]
 
 
+class BatchDeleteRequest(BaseModel):
+    """Request xóa hàng loạt bản ghi lịch sử."""
+    ids: List[str]
+
+
+class DeleteResultResponse(BaseModel):
+    """Kết quả thao tác xóa."""
+    status: str
+    deleted_count: int
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # 1. GET /api/v1/user-plants/map
 #    Lấy cây cá nhân trong Bounding Box để hiển thị trên bản đồ.
@@ -133,21 +144,17 @@ class PaginatedHistoryResponse(BaseModel):
     ),
 )
 async def get_user_plants_map(
-    min_lat: float = Query(..., description="Vĩ độ cực Nam của viewport (°)"),
-    max_lat: float = Query(..., description="Vĩ độ cực Bắc của viewport (°)"),
-    min_lng: float = Query(..., description="Kinh độ cực Tây của viewport (°)"),
-    max_lng: float = Query(..., description="Kinh độ cực Đông của viewport (°)"),
+    min_lat: Optional[float] = Query(None, description="Vĩ độ cực Nam của viewport (°)"),
+    max_lat: Optional[float] = Query(None, description="Vĩ độ cực Bắc của viewport (°)"),
+    min_lng: Optional[float] = Query(None, description="Kinh độ cực Tây của viewport (°)"),
+    max_lng: Optional[float] = Query(None, description="Kinh độ cực Đông của viewport (°)"),
     current_user: dict = Depends(get_current_user),
 ) -> List[UserPlantMapItem]:
     """
     GET /api/v1/user-plants/map
 
-    Edge cases handled:
-    - 401 Unauthorized : token hết hạn / không hợp lệ (do get_current_user)
-    - 400 Bad Request  : query param sai định dạng (FastAPI tự parse float)
-    - 500 Internal     : PyMongoError (timeout, network …)
-    - Data hỏng        : document thiếu field coordinates → bị bỏ qua
-    - Cross-data       : luôn filter user_id → không bao giờ lộ dữ liệu chéo
+    Nếu truyền bbox (min_lat, max_lat, min_lng, max_lng): Lọc theo bbox.
+    Nếu không truyền bbox: Trả về toàn bộ cây cá nhân của user có tọa độ GPS.
     """
     # ── 1. Trích user_id từ token đã xác thực ────────────────────────────────
     raw_uid = current_user.get("_id")
@@ -165,30 +172,36 @@ async def get_user_plants_map(
     except (InvalidId, Exception):
         pass  # Nếu không convert được ObjectId thì chỉ dùng string
 
-    # ── 2. Xây dựng Geo query $geoWithin + $geometry (Polygon) ───────────────
-    bbox_polygon = {
-        "type": "Polygon",
-        "coordinates": [[
-            [min_lng, min_lat],
-            [max_lng, min_lat],
-            [max_lng, max_lat],
-            [min_lng, max_lat],
-            [min_lng, min_lat],   # đóng vòng polygon
-        ]]
-    }
-
-    mongo_filter = {
+    # ── 2. Xây dựng filter MongoDB ──────────────────────────────────────────
+    mongo_filter: dict = {
         # SECURITY: Filter user_id trước — hàng rào bảo mật chính
         "user_id": {"$in": user_id_filters},
-        # GEO: Lọc theo vị trí trong bounding box
-        "location": {
-            "$geoWithin": {
-                "$geometry": bbox_polygon
-            }
-        },
         # DATA QUALITY: Chỉ lấy document có field location hợp lệ
         "location.coordinates": {"$exists": True, "$type": "array"},
     }
+
+    # Nếu có đầy đủ bbox hợp lệ thì thêm điều kiện $geoWithin
+    has_bbox = (
+        min_lat is not None and max_lat is not None and
+        min_lng is not None and max_lng is not None
+    )
+    if has_bbox:
+        bbox_polygon = {
+            "type": "Polygon",
+            "coordinates": [[
+                [min_lng, min_lat],
+                [max_lng, min_lat],
+                [max_lng, max_lat],
+                [min_lng, max_lat],
+                [min_lng, min_lat],   # đóng vòng polygon
+            ]]
+        }
+        mongo_filter["location"] = {
+            "$geoWithin": {
+                "$geometry": bbox_polygon
+            }
+        }
+
 
     # ── 3. Query MongoDB ──────────────────────────────────────────────────────
     collection = get_user_plants_collection()
@@ -245,6 +258,22 @@ async def get_user_plants_map(
     )
 
     return result
+
+
+@router.get(
+    "/all",
+    response_model=List[UserPlantMapItem],
+    summary="Lấy tất cả cây cá nhân có tọa độ của user",
+)
+async def get_all_user_plants(
+    current_user: dict = Depends(get_current_user),
+) -> List[UserPlantMapItem]:
+    """Trả về toàn bộ cây cá nhân có tọa độ GPS của người dùng hiện tại (không giới hạn viewport)."""
+    return await get_user_plants_map(
+        min_lat=None, max_lat=None, min_lng=None, max_lng=None,
+        current_user=current_user,
+    )
+
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -352,12 +381,29 @@ async def save_user_plant(
     # ── 4. Xây dựng document MongoDB ─────────────────────────────────────────
     now_utc = datetime.now(tz=timezone.utc)
 
+    clean_name = name.strip()
+    clean_plant_id = (plant_id or "").strip() or None
+    clean_sci_name = (scientific_name or "").strip() or None
+    clean_conf_str = (confidence or "").strip().replace("%", "") if confidence else None
+    conf_num = float(clean_conf_str) if clean_conf_str else None
+
     document: dict = {
         "user_id": user_id_str,
-        "plant_id": (plant_id or "").strip() or None,
-        "name": name.strip(),
-        "scientific_name": (scientific_name or "").strip() or None,
-        "confidence": (confidence or "").strip() or None,
+        # Đồng bộ ID / Label giữa MySQL và MongoDB
+        "plant_id": clean_plant_id,
+        "ten_label": clean_plant_id,
+        # Tên thường gọi (đồng bộ đa nền tảng: mobile, web admin, MySQL)
+        "name": clean_name,
+        "common_name": clean_name,
+        "ten_cay": clean_name,
+        # Tên khoa học
+        "scientific_name": clean_sci_name,
+        "ten_quocte": clean_sci_name,
+        "latin_name": clean_sci_name,
+        # Độ tin cậy AI
+        "confidence": f"{clean_conf_str}%" if clean_conf_str else None,
+        "confidence_score": conf_num,
+        # Ảnh Cloudinary
         "image_url": cloudinary_result["image_url"],
         "thumbnail_url": cloudinary_result["thumbnail_url"],
         "cloudinary_public_id": cloudinary_result["public_id"],
@@ -371,8 +417,13 @@ async def save_user_plant(
         if -90 <= latitude <= 90 and -180 <= longitude <= 180:
             document["location"] = {
                 "type": "Point",
-                "coordinates": [longitude, latitude],  # GeoJSON: [lng, lat]
+                "coordinates": [longitude, latitude],  # GeoJSON chuẩn: [lng, lat]
             }
+            # Đồng bộ tọa độ dạng phẳng để tra cứu nhanh & hiển thị trực quan
+            document["latitude"] = latitude
+            document["longitude"] = longitude
+            document["lat"] = latitude
+            document["lng"] = longitude
         else:
             logger.warning(
                 "[user_plants/save] Tọa độ không hợp lệ lat=%s lng=%s — bỏ qua",
@@ -423,6 +474,24 @@ async def save_user_plant(
 # 3. GET /api/v1/user-plants/history
 #    Danh sách lịch sử nhận diện của người dùng hiện tại (có phân trang).
 # ═══════════════════════════════════════════════════════════════════════════════
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Alias: GET /api/v1/user-plants (tương đương /history)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@router.get(
+    "",
+    response_model=PaginatedHistoryResponse,
+    summary="Lịch sử nhận diện cây cá nhân (alias)",
+    include_in_schema=False,
+)
+async def get_user_plants_default(
+    page: int = Query(1, ge=1),
+    limit: int = Query(_HISTORY_DEFAULT_LIMIT, ge=1, le=100),
+    current_user: dict = Depends(get_current_user),
+) -> PaginatedHistoryResponse:
+    """Tương thích ngược khi client gọi GET /api/v1/user-plants."""
+    return await get_user_plants_history(page=page, limit=limit, current_user=current_user)
 
 @router.get(
     "/history",
@@ -475,7 +544,7 @@ async def get_user_plants_history(
                     "created_at": 1,
                 }
             )
-            .sort("created_at", -1)
+            .sort([("created_at", -1), ("_id", -1)])
             .skip(skip)
             .limit(limit)
             .to_list(length=limit)
@@ -506,7 +575,7 @@ async def get_user_plants_history(
 
         created_raw = doc.get("created_at")
         if isinstance(created_raw, datetime):
-            created_str = created_raw.isoformat()
+            created_str = (created_raw.replace(tzinfo=timezone.utc) if created_raw.tzinfo is None else created_raw.astimezone(timezone.utc)).isoformat()
         else:
             created_str = str(created_raw) if created_raw else ""
 
@@ -642,3 +711,192 @@ async def delete_user_plant(
         plant_record_id, user_id_str,
     )
     # 204 No Content — không trả về body
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 5. POST /api/v1/user-plants/batch-delete & DELETE /api/v1/user-plants/batch
+#    Xóa một hoặc nhiều bản ghi lịch sử nhận diện được chọn.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@router.post(
+    "/batch-delete",
+    response_model=DeleteResultResponse,
+    summary="Xóa nhiều bản ghi lịch sử nhận diện (POST)",
+)
+@router.delete(
+    "/batch",
+    response_model=DeleteResultResponse,
+    summary="Xóa nhiều bản ghi lịch sử nhận diện (DELETE)",
+)
+async def delete_user_plants_batch(
+    payload: BatchDeleteRequest,
+    current_user: dict = Depends(get_current_user),
+) -> DeleteResultResponse:
+    """
+    Xóa nhiều bản ghi lịch sử nhận diện theo danh sách ID truyền lên.
+    Chỉ xóa các bản ghi thuộc quyền sở hữu của user đang đăng nhập.
+    Ảnh Cloudinary tương ứng sẽ được dọn dẹp chạy nền trong ThreadPool.
+    """
+    raw_uid = current_user.get("_id")
+    if raw_uid is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Không thể xác định user từ token.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    user_id_str = str(raw_uid)
+
+    if not payload.ids:
+        return DeleteResultResponse(status="success", deleted_count=0)
+
+    valid_oids = []
+    for pid in payload.ids:
+        try:
+            valid_oids.append(ObjectId(pid))
+        except (InvalidId, Exception):
+            continue
+
+    if not valid_oids:
+        return DeleteResultResponse(status="success", deleted_count=0)
+
+    collection = get_user_plants_collection()
+
+    try:
+        cursor = collection.find(
+            {"_id": {"$in": valid_oids}, "user_id": user_id_str},
+            projection={"cloudinary_public_id": 1},
+        )
+        docs = await cursor.to_list(length=len(valid_oids))
+    except PyMongoError as exc:
+        logger.error("[user_plants/delete_batch] MongoDB find lỗi: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Lỗi cơ sở dữ liệu khi truy vấn bản ghi.",
+        )
+
+    if not docs:
+        return DeleteResultResponse(status="success", deleted_count=0)
+
+    actual_oids = [d["_id"] for d in docs]
+    cloudinary_ids = [
+        d["cloudinary_public_id"]
+        for d in docs
+        if d.get("cloudinary_public_id")
+    ]
+
+    try:
+        del_result = await collection.delete_many(
+            {"_id": {"$in": actual_oids}, "user_id": user_id_str}
+        )
+    except PyMongoError as exc:
+        logger.error("[user_plants/delete_batch] MongoDB delete_many lỗi: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Không thể xóa các bản ghi. Vui lòng thử lại.",
+        )
+
+    # Dọn dẹp ảnh Cloudinary trong background
+    if cloudinary_ids:
+        def _cleanup_cloudinary():
+            for c_id in cloudinary_ids:
+                try:
+                    delete_plant_image(c_id)
+                except Exception:
+                    pass
+
+        asyncio.get_running_loop().run_in_executor(None, _cleanup_cloudinary)
+
+    logger.info(
+        "[user_plants/delete_batch] User %s đã xóa %d bản ghi",
+        user_id_str,
+        del_result.deleted_count,
+    )
+    return DeleteResultResponse(
+        status="success",
+        deleted_count=del_result.deleted_count,
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# 6. DELETE /api/v1/user-plants/all & POST /api/v1/user-plants/delete-all
+#    Xóa toàn bộ lịch sử nhận diện của người dùng hiện tại.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@router.delete(
+    "/all",
+    response_model=DeleteResultResponse,
+    summary="Xóa toàn bộ lịch sử nhận diện của user (DELETE)",
+)
+@router.post(
+    "/delete-all",
+    response_model=DeleteResultResponse,
+    summary="Xóa toàn bộ lịch sử nhận diện của user (POST)",
+)
+async def delete_all_user_plants(
+    current_user: dict = Depends(get_current_user),
+) -> DeleteResultResponse:
+    """
+    Xóa TOÀN BỘ dữ liệu lịch sử nhận diện của người dùng hiện tại.
+    Chỉ xóa dữ liệu của chính user đó. Dọn dẹp ảnh Cloudinary chạy nền.
+    """
+    raw_uid = current_user.get("_id")
+    if raw_uid is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Không thể xác định user từ token.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    user_id_str = str(raw_uid)
+
+    collection = get_user_plants_collection()
+
+    try:
+        cursor = collection.find(
+            {"user_id": user_id_str},
+            projection={"cloudinary_public_id": 1},
+        )
+        docs = await cursor.to_list(length=1000)
+    except PyMongoError as exc:
+        logger.error("[user_plants/delete_all] MongoDB find lỗi: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Lỗi cơ sở dữ liệu khi truy vấn.",
+        )
+
+    if not docs:
+        return DeleteResultResponse(status="success", deleted_count=0)
+
+    cloudinary_ids = [
+        d["cloudinary_public_id"]
+        for d in docs
+        if d.get("cloudinary_public_id")
+    ]
+
+    try:
+        del_result = await collection.delete_many({"user_id": user_id_str})
+    except PyMongoError as exc:
+        logger.error("[user_plants/delete_all] MongoDB delete_many lỗi: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Không thể xóa toàn bộ lịch sử. Vui lòng thử lại.",
+        )
+
+    if cloudinary_ids:
+        def _cleanup_all():
+            for c_id in cloudinary_ids:
+                try:
+                    delete_plant_image(c_id)
+                except Exception:
+                    pass
+
+        asyncio.get_running_loop().run_in_executor(None, _cleanup_all)
+
+    logger.info(
+        "[user_plants/delete_all] User %s đã xóa toàn bộ %d bản ghi lịch sử",
+        user_id_str,
+        del_result.deleted_count,
+    )
+    return DeleteResultResponse(
+        status="success",
+        deleted_count=del_result.deleted_count,
+    )

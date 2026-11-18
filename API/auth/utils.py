@@ -1,4 +1,5 @@
 import os
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import jwt
@@ -13,8 +14,8 @@ from API.auth.mongo import get_user_collection
 # ---------------------------------------------------------------------------
 SECRET_KEY: str = os.getenv("SECRET_KEY", "change-me-in-production")
 ALGORITHM: str = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
-REFRESH_TOKEN_EXPIRE_DAYS: int = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "30"))
+ACCESS_TOKEN_EXPIRE_MINUTES: int = max(15, min(30, int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))))
+REFRESH_TOKEN_EXPIRE_DAYS: int = max(30, min(90, int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "30"))))
 
 import bcrypt
 
@@ -54,7 +55,7 @@ def create_refresh_token(data: dict, expires_delta: timedelta | None = None) -> 
     expire = datetime.now(tz=timezone.utc) + (
         expires_delta if expires_delta else timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     )
-    payload.update({"exp": expire, "type": "refresh"})
+    payload.update({"exp": expire, "type": "refresh", "jti": uuid.uuid4().hex})
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
 
@@ -152,4 +153,27 @@ async def get_current_user(
     if user is None:
         raise credentials_exception
 
+    return user
+
+
+_optional_bearer_scheme = HTTPBearer(auto_error=False)
+
+
+async def get_optional_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_optional_bearer_scheme),
+) -> dict | None:
+    """Trả về current_user nếu có Bearer token hợp lệ, ngược lại trả về None mà không throw 401."""
+    if credentials is None:
+        return None
+    try:
+        return await get_current_user(credentials)
+    except Exception:
+        return None
+
+
+
+async def require_admin(user: dict = Depends(get_current_user)) -> dict:
+    # Role must be provisioned in the database by an operator.
+    if user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Administrator access required.")
     return user

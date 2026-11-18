@@ -23,6 +23,8 @@ firebase-credentials.json
 .DS_Store
 Thumbs.db
 
-# Testing & Logs
+# Testing & Logs & Excluded Docs/Scripts
 .pytest_cache/
 *.log
+*.md
+*.sh
