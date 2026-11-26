@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:thunghiem1/controllers/auth_notifier.dart';
 import 'package:thunghiem1/controllers/garden_notifier.dart';
+import 'package:thunghiem1/features/herbal_garden/state/herbal_garden_state.dart';
 import 'package:thunghiem1/screens/shell/main_shell.dart';
 import 'package:thunghiem1/theme/app_theme.dart';
 import 'package:thunghiem1/theme/theme_notifier.dart';
@@ -27,8 +28,9 @@ class PlantVisionApp extends StatelessWidget {
           create: (_) => AuthNotifier()..init(),
         ),
         // Vườn Dược Liệu — state dùng chung cho màn hình vườn & chi tiết cây.
-        ChangeNotifierProvider<GardenNotifier>(
-          create: (_) => GardenNotifier(),
+        ChangeNotifierProvider<GardenNotifier>(create: (_) => GardenNotifier()),
+        ChangeNotifierProvider<HerbalGardenController>(
+          create: (_) => HerbalGardenController(),
         ),
       ],
       child: ListenableBuilder(

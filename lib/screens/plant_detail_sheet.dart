@@ -104,6 +104,9 @@ class PlantDetailSheet extends StatelessWidget {
                     final howToUse = data['how_to_use'];
                     final precautions = data['precautions'];
                     final imageUrl = data['image_url'];
+                    final warnings = (data['warnings'] as List? ?? const [])
+                        .whereType<Map>()
+                        .toList();
 
                     return ListView(
                       controller:
@@ -135,6 +138,65 @@ class PlantDetailSheet extends StatelessWidget {
                           isItalic: true,
                         ),
                         _buildInfoSection('Mô tả', description),
+                        if (data['family']?.toString().isNotEmpty == true)
+                          _buildInfoSection('Họ thực vật', data['family']),
+                        if (data['parts_used']?.toString().isNotEmpty == true)
+                          _buildInfoSection('Bộ phận dùng', data['parts_used']),
+                        if (data['contraindications']?.toString().isNotEmpty ==
+                            true)
+                          _buildInfoSection(
+                            'Chống chỉ định',
+                            data['contraindications'],
+                            titleColor: Colors.red.shade700,
+                          ),
+                        if (data['source_reference']?.toString().isNotEmpty ==
+                            true)
+                          _buildInfoSection(
+                            'Nguồn tham khảo',
+                            data['source_reference'],
+                          ),
+                        for (final warning in warnings) ...[
+                          _buildInfoSection(
+                            'Cảnh báo cây dễ nhầm',
+                            warning['warning_text']?.toString() ?? '',
+                            titleColor: Colors.red.shade700,
+                          ),
+                          if (warning['other_plant'] is Map)
+                            _buildInfoSection(
+                              'Dễ nhầm với',
+                              warning['other_plant']['common_name']
+                                      ?.toString() ??
+                                  '',
+                            ),
+                          for (final feature
+                              in (warning['distinguishing_features'] as List? ??
+                                  const []))
+                            _buildInfoSection(
+                              'Dấu hiệu phân biệt',
+                              feature.toString(),
+                            ),
+                          if (warning['source']?.toString().isNotEmpty == true)
+                            _buildInfoSection(
+                              'Nguồn cảnh báo',
+                              warning['source'],
+                            ),
+                          for (final image
+                              in (warning['images'] as List? ?? const []))
+                            if (image is Map &&
+                                image['url']?.toString().isNotEmpty == true)
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Image.network(
+                                    image['url'].toString(),
+                                    height: 140,
+                                    errorBuilder: (_, _, _) =>
+                                        const SizedBox.shrink(),
+                                  ),
+                                  Text(image['caption']?.toString() ?? ''),
+                                ],
+                              ),
+                        ],
 
                         // Kiểm tra null hoặc rỗng trước khi hiển thị các section phụ
                         if (usage != null && usage.toString().isNotEmpty)

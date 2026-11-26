@@ -1,3 +1,4 @@
+import 'session_http_client.dart';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -28,6 +29,7 @@ class AuthException implements Exception {
 /// Storing tokens and managing auth state is the responsibility of
 /// [SecureStorageService] and [AuthNotifier] respectively.
 class AuthApiService {
+  static final http.Client _sessionClient = SessionHttpClient();
   // â”€â”€ Singleton â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   static final AuthApiService _instance = AuthApiService._();
   factory AuthApiService() => _instance;
@@ -123,7 +125,7 @@ class AuthApiService {
 
   /// Parses the response; throws [AuthException] for non-2xx status codes
   /// with a developer-friendly + user-friendly message.
-  String _handleResponse(http.Response response) {
+  Future<String> _handleResponse(http.Response response) async {
     final body = utf8.decode(response.bodyBytes);
     final data = json.decode(body);
 
@@ -135,7 +137,7 @@ class AuthApiService {
       }
       final refreshToken = data['refresh_token'] as String?;
       if (refreshToken != null && refreshToken.isNotEmpty) {
-        SecureStorageService().saveRefreshToken(refreshToken);
+        await SecureStorageService().saveRefreshToken(refreshToken);
       }
       return token;
     }
@@ -284,7 +286,7 @@ class AuthApiService {
   /// `GET /api/auth/me` â€” Fetches current user profile
   Future<Map<String, dynamic>> getMe(String jwt) async {
     await resolveBase();
-    final response = await http
+    final response = await _sessionClient
         .get(
           Uri.parse('$_base/api/auth/me'),
           headers: {..._jsonHeaders, 'Authorization': 'Bearer $jwt'},
@@ -308,7 +310,7 @@ class AuthApiService {
   /// endpoint chưa tồn tại (khi đó tên vẫn được lưu cục bộ trên thiết bị).
   Future<Map<String, dynamic>> updateMe(String jwt, {String? name}) async {
     try {
-      final response = await http
+      final response = await _sessionClient
           .patch(
             Uri.parse('$_base/api/auth/me'),
             headers: {..._jsonHeaders, 'Authorization': 'Bearer $jwt'},
@@ -373,10 +375,20 @@ class AuthApiService {
   }
 
   /// `POST /api/auth/refresh` — Làm mới Access Token bằng Refresh Token.
-  Future<String?> refreshToken() async {
+  Future<String?>? _refreshing;
+  Future<String?> refreshToken() {
+    return _refreshing ??= _rotateToken().whenComplete(
+      () => _refreshing = null,
+    );
+  }
+
+  Future<String?> _rotateToken() async {
     try {
       final refresh = await SecureStorageService().readRefreshToken();
-      if (refresh == null) return null;
+      if (refresh == null) {
+        await SecureStorageService().deleteToken();
+        return null;
+      }
 
       await resolveBase();
       final response = await http
@@ -387,16 +399,20 @@ class AuthApiService {
           )
           .timeout(_timeout);
 
+      if (await SecureStorageService().readRefreshToken() != refresh) {
+        return null;
+      }
+      if (response.statusCode == 401 || response.statusCode == 403) {
+        await SecureStorageService().deleteToken();
+        return null;
+      }
       if (response.statusCode >= 200 && response.statusCode < 300) {
         final data = json.decode(utf8.decode(response.bodyBytes));
         final newAccess = data['access_token'] as String?;
         final newRefresh = data['refresh_token'] as String?;
-        if (newAccess != null) {
-          await SecureStorageService().saveToken(newAccess);
-        }
-        if (newRefresh != null) {
-          await SecureStorageService().saveRefreshToken(newRefresh);
-        }
+        if (newAccess == null || newRefresh == null) return null;
+        await SecureStorageService().saveRefreshToken(newRefresh);
+        await SecureStorageService().saveToken(newAccess);
         return newAccess;
       }
       return null;

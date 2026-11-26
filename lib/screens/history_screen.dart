@@ -1,7 +1,11 @@
+import 'package:thunghiem1/widgets/error_dialog.dart';
+import 'package:thunghiem1/models/plants_model.dart';
+import 'package:thunghiem1/screens/plant_detail_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:thunghiem1/models/image_response.dart';
 import 'package:thunghiem1/screens/map_screen.dart';
+import 'package:thunghiem1/screens/camera_screen.dart';
 import 'package:thunghiem1/services/history_service.dart';
 import 'package:thunghiem1/theme/app_colors.dart';
 import 'package:thunghiem1/widgets/back_nav_button.dart';
@@ -15,14 +19,52 @@ class ImagesListScreen extends StatefulWidget {
 
 class _ImagesListScreenState extends State<ImagesListScreen> {
   late final HistoryService _historyService;
-  late Future<List<ImageResponse>> _imagesFuture;
+  late Future<HistoryPage> _imagesFuture;
+  int _page = 1;
+  bool _deleting = false;
+  bool _deleteMode = false;
+  final Set<String> _selected = {};
+
+  Future<void> _delete({bool all = false}) async {
+    if (_deleting || (!all && _selected.isEmpty)) return;
+    setState(() => _deleting = true);
+    final ids = Set<String>.from(_selected);
+    try {
+      final confirmed = await showErrorDialog(
+        context,
+        all
+            ? 'Xoá toàn bộ ảnh và cây cá nhân đã lưu trên mọi trang? Không thể hoàn tác.'
+            : 'Xoá ${ids.length} mục đã chọn cùng cây cá nhân tương ứng? Không thể hoàn tác.',
+        title: 'Xác nhận xoá',
+        confirmLabel: 'Xoá',
+      );
+      if (confirmed != true || !mounted) return;
+      final count = await _historyService.deleteItems(ids: all ? null : ids);
+      if (!mounted) return;
+      _selected.clear();
+      _page = 1;
+      _loadImages();
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Đã xoá $count mục.')));
+    } catch (error) {
+      if (mounted) {
+        await showErrorDialog(
+          context,
+          error.toString().replaceFirst('Exception: ', ''),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _deleting = false);
+    }
+  }
 
   @override
   void initState() {
     super.initState();
     _historyService = HistoryService();
     // Gán trực tiếp — không gọi setState trong initState
-    _imagesFuture = _historyService.getHistory(limit: 100);
+    _imagesFuture = _historyService.getPage(_page);
   }
 
   @override
@@ -31,10 +73,16 @@ class _ImagesListScreenState extends State<ImagesListScreen> {
     super.dispose();
   }
 
+  void _refreshImages() {
+    _deleteMode = false;
+    _selected.clear();
+    _loadImages();
+  }
+
   void _loadImages() {
     // Chỉ setState khi user bấm refresh
     setState(() {
-      _imagesFuture = _historyService.getHistory(limit: 100);
+      _imagesFuture = _historyService.getPage(_page);
     });
   }
 
@@ -92,180 +140,98 @@ class _ImagesListScreenState extends State<ImagesListScreen> {
   }
 
   void _showImageDetail(BuildContext context, ImageResponse image) {
-    final colorScheme = Theme.of(context).colorScheme;
-    showGeneralDialog(
+    showDialog<void>(
       context: context,
-      barrierDismissible: true,
-      barrierLabel: '',
-      barrierColor: Colors.black54,
-      transitionDuration: const Duration(milliseconds: 400),
-      // Dialog stabil nằm trong pageBuilder — không rebuild mỗi frame
-      pageBuilder: (context, anim1, anim2) {
-        return Dialog(
-          backgroundColor: colorScheme.surface,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(32),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: Container(
-            constraints: const BoxConstraints(maxWidth: 400),
+      builder: (dialogContext) => Dialog(
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 400),
+          child: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Stack(
-                  children: [
-                    AspectRatio(
-                      aspectRatio: 1,
-                      child: Hero(
-                        tag: image.id,
-                        child: _buildNetworkImage(image.imageUrl),
-                      ),
-                    ),
-                    Positioned(
-                      top: 16,
-                      right: 16,
-                      child: GestureDetector(
-                        onTap: () => Navigator.pop(context),
-                        child: Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.4),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            Icons.close,
-                            color: Colors.white,
-                            size: 20,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
+                AspectRatio(
+                  aspectRatio: 1,
+                  child: _buildNetworkImage(image.imageUrl),
                 ),
                 Padding(
-                  padding: const EdgeInsets.all(24.0),
+                  padding: const EdgeInsets.all(20),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              image.id,
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.bold,
-                                color: colorScheme.onSurface,
-                              ),
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 6,
-                            ),
-                            decoration: BoxDecoration(
-                              color: colorScheme.surfaceContainerHighest,
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: Text(
-                              '#${image.id.split('-').last}',
-                              style: TextStyle(
-                                color: AppColors.primaryVariant.withValues(
-                                  alpha: 0.8,
+                      Text(
+                        image.commonName ?? 'Cây đã lưu',
+                        style: Theme.of(context).textTheme.titleLarge,
+                      ),
+                      if (image.scientificName?.isNotEmpty == true) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          image.scientificName!,
+                          style: const TextStyle(fontStyle: FontStyle.italic),
+                        ),
+                      ],
+                      if (image.confidence != null) ...[
+                        const SizedBox(height: 8),
+                        Text(
+                          'Độ tin cậy: ${image.confidence!.toStringAsFixed(2)}%',
+                        ),
+                      ],
+                      const SizedBox(height: 12),
+                      Text('Đã lưu: ${image.savedAtLabel}'),
+                      if (image.plantId?.isNotEmpty == true)
+                        TextButton.icon(
+                          icon: const Icon(Icons.eco_outlined),
+                          label: const Text('Xem chi tiết cây'),
+                          onPressed: () {
+                            Navigator.pop(dialogContext);
+                            showModalBottomSheet(
+                              context: context,
+                              isScrollControlled: true,
+                              backgroundColor: Colors.transparent,
+                              builder: (_) => PlantDetailSheet(
+                                showActions: false,
+                                prediction: PlantPrediction(
+                                  plantId: image.plantId!,
+                                  commonName: image.commonName ?? 'Cây đã lưu',
+                                  scientificName: image.scientificName ?? '',
+                                  confidence: image.confidence ?? 0,
+                                  imageUrl: image.imageUrl,
                                 ),
-                                fontWeight: FontWeight.bold,
-                                fontSize: 12,
                               ),
-                            ),
-                          ),
-                        ],
-                      ),
+                            );
+                          },
+                        ),
                       const SizedBox(height: 8),
-                      Divider(
-                        height: 32,
-                        thickness: 1,
-                        color: colorScheme.outlineVariant,
+                      Text(
+                        image.hasLocation
+                            ? 'GPS: ${image.latitude!.toStringAsFixed(6)}, '
+                                  '${image.longitude!.toStringAsFixed(6)}'
+                            : 'Không có dữ liệu GPS',
                       ),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.date_range,
-                            size: 16,
-                            color: colorScheme.onSurface.withValues(alpha: 0.6),
-                          ),
-                          Text(
-                            ' Captured at: ',
-                            style: TextStyle(
-                              fontSize: 12,
-                              letterSpacing: 0.5,
-                              fontWeight: FontWeight.w600,
-                              color: colorScheme.onSurface.withValues(
-                                alpha: 0.5,
-                              ),
-                            ),
-                          ),
-                          Text(
-                            image.capturedAt.toUpperCase(),
-                            style: TextStyle(
-                              fontSize: 12,
-                              letterSpacing: 0.5,
-                              fontWeight: FontWeight.w600,
-                              color: colorScheme.onSurface.withValues(
-                                alpha: 0.5,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 20),
-                      // Nút mở bản đồ — chỉ hiện khi có toạ độ GPS.
-                      if (image.hasLocation) ...[
+                      if (image.notes?.isNotEmpty == true) ...[
+                        const SizedBox(height: 8),
+                        Text('Ghi chú: ${image.notes}'),
+                      ],
+                      const SizedBox(height: 16),
+                      if (image.hasLocation)
                         SizedBox(
                           width: double.infinity,
                           child: ElevatedButton.icon(
                             onPressed: () {
-                              Navigator.pop(context);
+                              Navigator.pop(dialogContext);
                               _openOnMap(context, image);
                             },
-                            icon: const Icon(Icons.map_outlined, size: 20),
-                            label: const Text(
-                              'Xem trên bản đồ',
-                              style: TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.primaryVariant
-                                  .withValues(alpha: 0.8),
-                              foregroundColor: Colors.white,
-                              elevation: 0,
-                              padding: const EdgeInsets.symmetric(vertical: 16),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                            ),
+                            icon: const Icon(Icons.map_outlined),
+                            label: const Text('Xem trên bản đồ'),
                           ),
                         ),
-                        const SizedBox(height: 10),
-                      ],
                       SizedBox(
                         width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: () => Navigator.pop(context),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.primaryVariant
-                                .withValues(alpha: 0.8),
-                            foregroundColor: Colors.white,
-                            elevation: 0,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                          ),
-                          child: const Text(
-                            'Đóng',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
+                        child: TextButton(
+                          onPressed: () => Navigator.pop(dialogContext),
+                          child: const Text('Đóng'),
                         ),
                       ),
                     ],
@@ -274,15 +240,8 @@ class _ImagesListScreenState extends State<ImagesListScreen> {
               ],
             ),
           ),
-        );
-      },
-      // transitionBuilder chỉ bọc animation — không build Dialog mỗi frame
-      transitionBuilder: (context, anim1, anim2, child) {
-        return Transform.scale(
-          scale: anim1.value,
-          child: Opacity(opacity: anim1.value, child: child),
-        );
-      },
+        ),
+      ),
     );
   }
 
@@ -298,7 +257,7 @@ class _ImagesListScreenState extends State<ImagesListScreen> {
         children: [
           _buildHeader(), // Thiết kế gốc của bạn
           Expanded(
-            child: FutureBuilder<List<ImageResponse>>(
+            child: FutureBuilder<HistoryPage>(
               future: _imagesFuture,
               builder: (context, snapshot) {
                 // TRƯỜNG HỢP 3: Trạng thái đang tải (Skeleton)
@@ -310,11 +269,76 @@ class _ImagesListScreenState extends State<ImagesListScreen> {
                   return _buildError(snapshot.error.toString());
                 }
                 if (snapshot.hasData) {
-                  final images = snapshot.data!;
+                  final data = snapshot.data!;
+                  final images = data.items;
                   // TRƯỜNG HỢP 2: Dữ liệu rỗng
                   if (images.isEmpty) return _buildEmpty();
                   // TRƯỜNG HỢP 1: Tải đầy đủ
-                  return _buildGrid(images);
+                  return Column(
+                    children: [
+                      if (_deleteMode)
+                        Wrap(
+                          spacing: 8,
+                          children: [
+                            TextButton(
+                              onPressed: _deleting
+                                  ? null
+                                  : () => setState(() {
+                                      _selected.addAll(images.map((e) => e.id));
+                                    }),
+                              child: const Text('Chọn trang này'),
+                            ),
+                            TextButton(
+                              onPressed: _deleting || _selected.isEmpty
+                                  ? null
+                                  : () => setState(_selected.clear),
+                              child: const Text('Bỏ chọn'),
+                            ),
+                            TextButton(
+                              onPressed: _deleting || _selected.isEmpty
+                                  ? null
+                                  : () => _delete(),
+                              child: Text('Xoá (${_selected.length})'),
+                            ),
+                            TextButton(
+                              onPressed: _deleting
+                                  ? null
+                                  : () => _delete(all: true),
+                              child: const Text('Xoá tất cả'),
+                            ),
+                          ],
+                        ),
+                      if (_deleting) const LinearProgressIndicator(),
+                      Expanded(child: _buildGrid(images)),
+                      SafeArea(
+                        top: false,
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            IconButton(
+                              onPressed: _deleting || _page <= 1
+                                  ? null
+                                  : () {
+                                      _page--;
+                                      _loadImages();
+                                    },
+                              icon: const Icon(Icons.chevron_left),
+                            ),
+                            Text('Trang $_page / ${(data.total / 6).ceil()}'),
+                            IconButton(
+                              onPressed: _deleting || _page * 6 >= data.total
+                                  ? null
+                                  : () {
+                                      _page++;
+                                      _loadImages();
+                                    },
+                              icon: const Icon(Icons.chevron_right),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  );
                 }
                 return const SizedBox();
               },
@@ -349,30 +373,44 @@ class _ImagesListScreenState extends State<ImagesListScreen> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Images List',
-                    style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      color: colorScheme.onSurface,
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Lịch sử cây',
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        color: colorScheme.onSurface,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Danh sách ảnh đã chụp',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: colorScheme.onSurface.withValues(alpha: 0.5),
-                      fontWeight: FontWeight.w500,
+                    const SizedBox(height: 4),
+                    Text(
+                      'Danh sách ảnh đã chụp',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: colorScheme.onSurface.withValues(alpha: 0.5),
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: _deleteMode ? 'Tắt chế độ xoá' : 'Chọn mục để xoá',
+                isSelected: _deleteMode,
+                onPressed: _deleting
+                    ? null
+                    : () => setState(() {
+                        _deleteMode = !_deleteMode;
+                        _selected.clear();
+                      }),
+                icon: const Icon(Icons.delete_outline),
+                selectedIcon: const Icon(Icons.delete, color: Colors.red),
               ),
               IconButton.filledTonal(
-                onPressed: _loadImages,
+                onPressed: _deleting ? null : _refreshImages,
                 icon: const Icon(Icons.refresh_rounded),
                 style: IconButton.styleFrom(
                   backgroundColor: colorScheme.surfaceContainerHighest,
@@ -407,7 +445,7 @@ class _ImagesListScreenState extends State<ImagesListScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return GestureDetector(
-      onTap: () => _showImageDetail(context, image),
+      onTap: _deleting ? null : () => _showImageDetail(context, image),
       child: Container(
         decoration: BoxDecoration(
           color: isDark ? AppColors.darkSurfaceVariant : AppColors.lightSurface,
@@ -430,7 +468,7 @@ class _ImagesListScreenState extends State<ImagesListScreen> {
                   borderRadius: const BorderRadius.vertical(
                     top: Radius.circular(24),
                   ),
-                  child: _buildNetworkImage(image.imageUrl),
+                  child: _buildNetworkImage(image.displayImageUrl),
                 ),
               ),
             ),
@@ -438,6 +476,22 @@ class _ImagesListScreenState extends State<ImagesListScreen> {
               padding: const EdgeInsets.all(12),
               child: Row(
                 children: [
+                  if (_deleteMode)
+                    SizedBox(
+                      width: 28,
+                      child: Checkbox(
+                        value: _selected.contains(image.id),
+                        onChanged: _deleting
+                            ? null
+                            : (value) => setState(() {
+                                if (value == true) {
+                                  _selected.add(image.id);
+                                } else {
+                                  _selected.remove(image.id);
+                                }
+                              }),
+                      ),
+                    ),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -454,7 +508,7 @@ class _ImagesListScreenState extends State<ImagesListScreen> {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          image.capturedAt.toUpperCase(),
+                          image.savedAtLabel,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
@@ -611,7 +665,7 @@ class _ImagesListScreenState extends State<ImagesListScreen> {
             ),
             const SizedBox(height: 32),
             ElevatedButton(
-              onPressed: _loadImages,
+              onPressed: _deleting ? null : _loadImages,
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primaryVariant,
                 foregroundColor: Colors.white,
@@ -680,8 +734,11 @@ class _ImagesListScreenState extends State<ImagesListScreen> {
             ),
             const SizedBox(height: 32),
             ElevatedButton(
-              onPressed: () {
-                // TODO: Xử lý chuyển sang màn hình chụp ảnh
+              onPressed: () async {
+                await Navigator.of(
+                  context,
+                ).push(MaterialPageRoute(builder: (_) => const CameraScreen()));
+                if (mounted) _loadImages();
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppColors.primaryVariant,

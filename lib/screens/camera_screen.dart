@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:camerawesome/camerawesome_plugin.dart';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:thunghiem1/controllers/auth_notifier.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:thunghiem1/core/image_compress.dart';
@@ -9,6 +11,7 @@ import 'package:thunghiem1/screens/results_screen.dart';
 import 'package:thunghiem1/services/api_service.dart';
 import 'package:thunghiem1/widgets/back_nav_button.dart';
 import 'package:thunghiem1/widgets/error_dialog.dart';
+import 'package:thunghiem1/services/review_feedback_service.dart';
 
 class CameraScreen extends StatefulWidget {
   const CameraScreen({super.key});
@@ -44,10 +47,12 @@ class _CameraScreenState extends State<CameraScreen> {
     Map<String, dynamic>? result;
     Object? error;
     Position? capturePosition;
+    String? feedbackImagePath;
 
     try {
       // Nén ảnh trước khi gửi: max 1024px, jpeg quality 80
       final compressedPath = await compressImageForUpload(imagePath);
+      feedbackImagePath = compressedPath;
 
       // Lấy GPS chạy SONG SONG với API predict → không làm chậm trải nghiệm.
       final results = await Future.wait<dynamic>([
@@ -89,7 +94,69 @@ class _CameraScreenState extends State<CameraScreen> {
       final message =
           result?['message']?.toString() ??
           'Không nhận diện được. Vui lòng thử lại với ảnh rõ hơn.';
-      await showErrorDialog(context, message, title: 'Không nhận diện được');
+      final send = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Không nhận diện được'),
+          content: Text(message),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Đóng'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Gửi ảnh cho chuyên gia'),
+            ),
+          ],
+        ),
+      );
+      if (send == true && context.mounted && feedbackImagePath != null) {
+        final userId = context.read<AuthNotifier>().userId;
+        if (userId == null) {
+          showErrorDialog(
+            context,
+            'Vui lòng đăng nhập để gửi và quản lý ảnh của bạn.',
+            title: 'Cần đăng nhập',
+          );
+          return;
+        }
+        try {
+          final sent = await ReviewFeedbackService.askAndSubmit(
+            context,
+            imagePath: feedbackImagePath,
+            prediction: result!,
+            source: 'low_confidence',
+            userId: userId,
+          );
+          if (sent && context.mounted) {
+            await showDialog<void>(
+              context: context,
+              builder: (ctx) => AlertDialog(
+                title: const Text('Cảm ơn bạn!'),
+                content: const Text(
+                  'Ảnh đã được gửi để chuyên gia thẩm định và cải thiện AI. '
+                  'Bạn có thể xem hoặc rút lại đồng ý trong Hồ sơ cá nhân.',
+                ),
+                actions: [
+                  FilledButton(
+                    onPressed: () => Navigator.pop(ctx),
+                    child: const Text('Đóng'),
+                  ),
+                ],
+              ),
+            );
+          }
+        } catch (_) {
+          if (context.mounted) {
+            showErrorDialog(
+              context,
+              'Không thể gửi ảnh. Vui lòng thử lại.',
+              title: 'Lỗi',
+            );
+          }
+        }
+      }
       return; // Ở lại màn hình camera, không navigate
     }
 
@@ -99,6 +166,7 @@ class _CameraScreenState extends State<CameraScreen> {
         builder: (context) => ResultScreen(
           result: result!,
           pathImg: imagePath,
+          feedbackImagePath: feedbackImagePath,
           capturePosition: capturePosition,
         ),
       ),

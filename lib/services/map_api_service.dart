@@ -1,3 +1,4 @@
+import 'session_http_client.dart';
 // lib/services/map_api_service.dart
 //
 // Chịu trách nhiệm gọi 2 API BẢN ĐỒ:
@@ -38,6 +39,7 @@ import 'package:thunghiem1/services/secure_storage_service.dart';
 // ── Models cho Cây gần đây (Nearby) & Chỉ đường (Directions) ───────────────────
 
 class NearbyPlantItem {
+  final bool isProtected;
   final String id;
   final int? locationId;
   final String name;
@@ -55,6 +57,7 @@ class NearbyPlantItem {
   LatLng get location => LatLng(latitude, longitude);
 
   const NearbyPlantItem({
+    this.isProtected = false,
     required this.id,
     this.locationId,
     required this.name,
@@ -76,24 +79,25 @@ class NearbyPlantItem {
         : PlantSource.system;
 
     return NearbyPlantItem(
+      isProtected: json['is_protected'] == true,
       id: json['id']?.toString() ?? '',
       locationId: (json['location_id'] ?? json['locationId']) as int?,
       name: json['name'] as String? ?? 'Cây thuốc',
       scientificName:
-          json['scientific_name'] as String? ?? json['scientificName'] as String?,
+          json['scientific_name'] as String? ??
+          json['scientificName'] as String?,
       description: json['description'] as String? ?? json['notes'] as String?,
       imageUrl: json['image_url'] as String? ?? json['imageUrl'] as String?,
       thumbnailUrl:
           json['thumbnail_url'] as String? ?? json['thumbnailUrl'] as String?,
-      latitude:
-          (json['latitude'] ?? json['lat']) is num
+      latitude: (json['latitude'] ?? json['lat']) is num
           ? ((json['latitude'] ?? json['lat']) as num).toDouble()
           : double.tryParse('${json['latitude'] ?? json['lat']}') ?? 0.0,
-      longitude:
-          (json['longitude'] ?? json['lng']) is num
+      longitude: (json['longitude'] ?? json['lng']) is num
           ? ((json['longitude'] ?? json['lng']) as num).toDouble()
           : double.tryParse('${json['longitude'] ?? json['lng']}') ?? 0.0,
-      addressName: json['address_name'] as String? ?? json['address'] as String?,
+      addressName:
+          json['address_name'] as String? ?? json['address'] as String?,
       source: src,
       distanceKm: (json['distance_km'] as num?)?.toDouble() ?? 0.0,
       distanceDisplay: json['distance_display'] as String? ?? '',
@@ -102,6 +106,8 @@ class NearbyPlantItem {
 }
 
 class DirectionsResult {
+  final bool isRoadRoute;
+  final List<LatLng> offTrailPoints;
   final double distanceKm;
   final String distanceDisplay;
   final int durationMinutes;
@@ -110,6 +116,8 @@ class DirectionsResult {
   final List<LatLng> points;
 
   const DirectionsResult({
+    this.isRoadRoute = false,
+    this.offTrailPoints = const [],
     required this.distanceKm,
     required this.distanceDisplay,
     required this.durationMinutes,
@@ -130,6 +138,12 @@ class DirectionsResult {
     }
 
     return DirectionsResult(
+      isRoadRoute: json["route_kind"] == "walking",
+      offTrailPoints: (json["off_trail_points"] as List? ?? [])
+          .map(
+            (p) => LatLng((p[0] as num).toDouble(), (p[1] as num).toDouble()),
+          )
+          .toList(),
       distanceKm: (json['distance_km'] as num?)?.toDouble() ?? 0.0,
       distanceDisplay: json['distance_display'] as String? ?? '',
       durationMinutes: (json['duration_minutes'] as num?)?.toInt() ?? 0,
@@ -162,7 +176,7 @@ class MapFetchResult {
 // ── Service ───────────────────────────────────────────────────────────────────
 
 class MapApiService {
-  MapApiService({http.Client? client}) : _client = client ?? http.Client();
+  MapApiService({http.Client? client}) : _client = client ?? SessionHttpClient();
 
   final http.Client _client;
 
@@ -204,9 +218,7 @@ class MapApiService {
     final future = () async {
       for (final base in _candidateBases) {
         try {
-          final probe = Uri.parse(
-            '$base/api/v1/system-plants/map',
-          ).replace(
+          final probe = Uri.parse('$base/api/v1/system-plants/map').replace(
             queryParameters: const {
               'min_lat': '20.0',
               'max_lat': '20.1',
@@ -214,9 +226,9 @@ class MapApiService {
               'max_lng': '105.1',
             },
           );
-          final res = await _client.get(probe).timeout(
-            const Duration(seconds: 6),
-          );
+          final res = await _client
+              .get(probe)
+              .timeout(const Duration(seconds: 6));
           // 404 cũng chấp nhận (host có router nhưng chưa có dữ liệu) —
           // chỉ cần host "sống" và phục vụ đúng path.
           if (res.statusCode != 0) {
@@ -448,11 +460,14 @@ class MapApiService {
     }
 
     try {
-      final response = await _client.get(uri, headers: headers).timeout(_timeout);
+      final response = await _client
+          .get(uri, headers: headers)
+          .timeout(_timeout);
       if (response.statusCode == 200) {
         final decoded = json.decode(utf8.decode(response.bodyBytes));
-        final List<dynamic> list =
-            decoded is List ? decoded : (decoded['data'] as List? ?? []);
+        final List<dynamic> list = decoded is List
+            ? decoded
+            : (decoded['data'] as List? ?? []);
         return list
             .whereType<Map<String, dynamic>>()
             .map((j) => NearbyPlantItem.fromJson(j))
@@ -484,7 +499,8 @@ class MapApiService {
       final response = await _client.get(uri).timeout(_timeout);
       if (response.statusCode == 200) {
         final decoded =
-            json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+            json.decode(utf8.decode(response.bodyBytes))
+                as Map<String, dynamic>;
         return DirectionsResult.fromJson(decoded);
       }
     } catch (e) {

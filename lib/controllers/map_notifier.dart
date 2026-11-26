@@ -1,3 +1,4 @@
+import 'package:flutter_compass/flutter_compass.dart';
 // lib/controllers/map_notifier.dart
 //
 // ChangeNotifier quản lý toàn bộ state màn hình bản đồ OpenStreetMap (flutter_map).
@@ -168,12 +169,45 @@ class MapNotifier extends ChangeNotifier {
   /// Trạng thái dẫn đường / chỉ đường từ GPS tới cây
   bool isNavigating = false;
   PlantMapMarker? navigationDestination;
+  List<LatLng> offTrailPoints = [];
   List<LatLng> routePoints = [];
   double navigationDistanceKm = 0.0;
   String navigationDistanceDisplay = '';
   int navigationDurationMinutes = 0;
   String navigationDurationDisplay = '';
   double currentBearing = 0.0;
+  double? compassHeading;
+  StreamSubscription<CompassEvent>? _compassSubscription;
+  bool compassNavigation = false;
+  double get destinationBearing =>
+      userLocation != null && navigationDestination != null
+      ? _calculateBearing(userLocation!, navigationDestination!.location)
+      : 0;
+
+  void toggleCompassNavigation() {
+    compassNavigation = !compassNavigation;
+    if (isNavigating && navigationDestination != null) {
+      _lastRouteUpdateTime = null;
+      _updateLiveRoute(userLocation!, navigationDestination!);
+    }
+    notifyListeners();
+  }
+
+  void _updateDirectRoute(LatLng currentLoc, PlantMapMarker dest) {
+    routePoints = [];
+    offTrailPoints = [currentLoc, dest.location];
+    navigationDistanceKm =
+        Geolocator.distanceBetween(
+          currentLoc.latitude,
+          currentLoc.longitude,
+          dest.latitude,
+          dest.longitude,
+        ) /
+        1000;
+    navigationDistanceDisplay = '${(navigationDistanceKm * 1000).round()} m';
+    navigationDurationDisplay = 'Đường thẳng';
+    notifyListeners();
+  }
 
   /// Chế độ tìm cây gần người dùng
   bool isNearbyActive = false;
@@ -230,7 +264,30 @@ class MapNotifier extends ChangeNotifier {
     // Nạp toàn bộ cây cá nhân của user (để bay tới khi bấm lọc)
     _loadAllUserPlants();
     await _requestLocationPermission();
-    _startLiveLocationTracking();
+    if (permissionState == MapPermissionState.granted) {
+      _startLiveLocationTracking();
+      _compassSubscription = FlutterCompass.events?.listen(
+        (event) {
+          final heading = event.heading;
+          if (heading != null && heading.isFinite && heading >= 0) {
+            final previous = compassHeading;
+            compassHeading = previous == null
+                ? heading
+                : (previous +
+                          ((heading - previous + 540) % 360 - 180) * 0.25 +
+                          360) %
+                      360;
+          } else {
+            compassHeading = null;
+          }
+          notifyListeners();
+        },
+        onError: (Object error) {
+          compassHeading = null;
+          notifyListeners();
+        },
+      );
+    }
   }
 
   /// Tải toàn bộ cây cá nhân của user từ MongoDB (không giới hạn viewport)
@@ -240,8 +297,9 @@ class MapNotifier extends ChangeNotifier {
       if (userPlants.isNotEmpty) {
         _allUserPlants = userPlants;
         final existingIds = items.map((m) => m.id).toSet();
-        final missing =
-            userPlants.where((p) => !existingIds.contains(p.id)).toList();
+        final missing = userPlants
+            .where((p) => !existingIds.contains(p.id))
+            .toList();
         if (missing.isNotEmpty) {
           items.addAll(missing);
           _applyFilter();
@@ -437,6 +495,10 @@ class MapNotifier extends ChangeNotifier {
   }
 
   Future<void> focusOnLocation(LatLng target, {double zoom = 17.0}) async {
+    target = LatLng(
+      PlantMapMarker.approximateCoordinate(target.latitude),
+      PlantMapMarker.approximateCoordinate(target.longitude),
+    );
     initialCenter = target;
     initialZoom = zoom;
 
@@ -520,8 +582,9 @@ class MapNotifier extends ChangeNotifier {
     if (_currentBounds == null) return;
 
     final connectivityResult = await Connectivity().checkConnectivity();
-    final hasNetwork =
-        connectivityResult.any((c) => c != ConnectivityResult.none);
+    final hasNetwork = connectivityResult.any(
+      (c) => c != ConnectivityResult.none,
+    );
 
     if (!hasNetwork) {
       await _handleOffline();
@@ -618,8 +681,9 @@ class MapNotifier extends ChangeNotifier {
     if (value == MapSourceFilter.user) {
       if (_allUserPlants.isNotEmpty) {
         final existingIds = items.map((m) => m.id).toSet();
-        final missing =
-            _allUserPlants.where((p) => !existingIds.contains(p.id)).toList();
+        final missing = _allUserPlants
+            .where((p) => !existingIds.contains(p.id))
+            .toList();
         if (missing.isNotEmpty) {
           items.addAll(missing);
         }
@@ -797,6 +861,7 @@ class MapNotifier extends ChangeNotifier {
               scientificName: n.scientificName,
               description: n.description,
               source: n.source,
+              isProtected: n.isProtected,
               latitude: n.latitude,
               longitude: n.longitude,
               imageUrl: n.thumbnailUrl ?? n.imageUrl,
@@ -805,7 +870,9 @@ class MapNotifier extends ChangeNotifier {
           .toList();
 
       final existingIds = items.map((m) => m.id).toSet();
-      final missing = newMarkers.where((m) => !existingIds.contains(m.id)).toList();
+      final missing = newMarkers
+          .where((m) => !existingIds.contains(m.id))
+          .toList();
       if (missing.isNotEmpty) {
         items.addAll(missing);
         _applyFilter();
@@ -873,10 +940,8 @@ class MapNotifier extends ChangeNotifier {
   void onMarkerTap(String markerId) {
     final plant = visibleItems.firstWhere(
       (m) => m.id == markerId,
-      orElse: () => items.firstWhere(
-        (m) => m.id == markerId,
-        orElse: () => _emptyMarker,
-      ),
+      orElse: () =>
+          items.firstWhere((m) => m.id == markerId, orElse: () => _emptyMarker),
     );
     if (plant.id.isEmpty) return;
 
@@ -890,7 +955,9 @@ class MapNotifier extends ChangeNotifier {
     highlightSpecies(plant);
 
     // Tìm tất cả các cây cùng loài này (cùng 1 loại cây nhưng có nhiều định vị)
-    final sameSpecies = visibleItems.where((p) => _isSameSpecies(p, plant)).toList();
+    final sameSpecies = visibleItems
+        .where((p) => _isSameSpecies(p, plant))
+        .toList();
 
     // Tìm thêm các cây nằm đè nhau tại cùng vị trí (khoảng cách <= 50 mét) nếu có
     final overlapping = visibleItems.where((p) {
@@ -989,33 +1056,56 @@ class MapNotifier extends ChangeNotifier {
 
   void _startLiveLocationTracking() {
     _positionStreamSub?.cancel();
-    _positionStreamSub = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 3, // Cập nhật vị trí khi di chuyển từ 3m trở lên
-      ),
-    ).listen((Position pos) {
-      final newLoc = LatLng(pos.latitude, pos.longitude);
-      userLocation = newLoc;
+    _positionStreamSub =
+        Geolocator.getPositionStream(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            distanceFilter: 3, // Cập nhật vị trí khi di chuyển từ 3m trở lên
+          ),
+        ).listen(
+          (Position pos) {
+            final newLoc = LatLng(pos.latitude, pos.longitude);
+            userLocation = newLoc;
 
-      // Cập nhật hướng xoay la bàn thiết bị nếu cảm biến cung cấp
-      if (pos.heading >= 0) {
-        currentBearing = pos.heading;
-      }
+            // Cập nhật hướng xoay la bàn thiết bị nếu cảm biến cung cấp
+            if (pos.heading >= 0) {
+              currentBearing = pos.heading;
+            }
 
-      // Nếu đang trong chế độ dẫn đường: Tự động cập nhật lại lộ trình & khoảng cách realtime từ Backend
-      if (isNavigating && navigationDestination != null) {
-        _updateLiveRoute(newLoc, navigationDestination!);
-      }
+            // Nếu đang trong chế độ dẫn đường: Tự động cập nhật lại lộ trình & khoảng cách realtime từ Backend
+            if (isNavigating && navigationDestination != null) {
+              _updateLiveRoute(newLoc, navigationDestination!);
+            }
 
-      notifyListeners();
-    });
+            notifyListeners();
+          },
+          onError: (Object error) {
+            navigationDurationDisplay = 'GPS không khả dụng';
+            notifyListeners();
+          },
+        );
   }
 
   Future<void> _updateLiveRoute(LatLng currentLoc, PlantMapMarker dest) async {
+    if (compassNavigation) {
+      _updateDirectRoute(currentLoc, dest);
+      return;
+    }
+    if (offTrailPoints.length >= 2 &&
+        routePoints.isNotEmpty &&
+        const Distance().as(
+              LengthUnit.Meter,
+              currentLoc,
+              offTrailPoints.first,
+            ) <
+            35) {
+      compassNavigation = true;
+      _updateDirectRoute(currentLoc, dest);
+      return;
+    }
     final now = DateTime.now();
     if (_lastRouteUpdateTime != null &&
-        now.difference(_lastRouteUpdateTime!).inMilliseconds < 2500) {
+        now.difference(_lastRouteUpdateTime!).inMilliseconds < 15000) {
       return;
     }
     _lastRouteUpdateTime = now;
@@ -1027,8 +1117,19 @@ class MapNotifier extends ChangeNotifier {
       endLng: dest.longitude,
     );
 
-    if (dir != null && isNavigating) {
-      routePoints = dir.points;
+    if (dir != null &&
+        isNavigating &&
+        !compassNavigation &&
+        navigationDestination == dest) {
+      if (!dir.isRoadRoute && routePoints.isNotEmpty) {
+        navigationDurationDisplay = 'Mất kết nối • tuyến đã lưu';
+        notifyListeners();
+        return;
+      }
+      routePoints = dir.isRoadRoute ? dir.points : [];
+      offTrailPoints = dir.offTrailPoints.isNotEmpty
+          ? dir.offTrailPoints
+          : (dir.isRoadRoute ? [] : dir.points);
       navigationDistanceKm = dir.distanceKm;
       navigationDistanceDisplay = dir.distanceDisplay;
       navigationDurationMinutes = dir.durationMinutes;
@@ -1050,14 +1151,22 @@ class MapNotifier extends ChangeNotifier {
 
     final y = sin(dLng) * cos(endLat);
     final x =
-        cos(startLat) * sin(endLat) -
-        sin(startLat) * cos(endLat) * cos(dLng);
+        cos(startLat) * sin(endLat) - sin(startLat) * cos(endLat) * cos(dLng);
 
     final bearing = atan2(y, x);
     return (bearing * (180.0 / pi) + 360.0) % 360.0;
   }
 
   Future<void> startNavigationTo(PlantMapMarker plant) async {
+    if (plant.isProtected) {
+      onEvent?.call(
+        const MapDialogEvent(
+          'Cây cần bảo tồn chỉ hiển thị vùng phân bố khái quát, không hỗ trợ dẫn đường tới cây.',
+          title: 'Bảo tồn cây',
+        ),
+      );
+      return;
+    }
     if (userLocation == null) {
       onEvent?.call(
         const MapDialogEvent(
@@ -1076,6 +1185,10 @@ class MapNotifier extends ChangeNotifier {
     selectedCarouselPlant = null;
     notifyListeners();
 
+    if (compassNavigation) {
+      _updateDirectRoute(userLocation!, plant);
+      return;
+    }
     // Gọi Backend Directions API xử lý lộ trình OSRM
     final dir = await _api.fetchDirections(
       startLat: userLocation!.latitude,
@@ -1084,15 +1197,27 @@ class MapNotifier extends ChangeNotifier {
       endLng: plant.longitude,
     );
 
+    if (!isNavigating || navigationDestination != plant || compassNavigation) {
+      return;
+    }
     if (dir != null) {
-      routePoints = dir.points;
+      if (!dir.isRoadRoute && routePoints.isNotEmpty) {
+        navigationDurationDisplay = 'Mất kết nối • tuyến đã lưu';
+        notifyListeners();
+        return;
+      }
+      routePoints = dir.isRoadRoute ? dir.points : [];
+      offTrailPoints = dir.offTrailPoints.isNotEmpty
+          ? dir.offTrailPoints
+          : (dir.isRoadRoute ? [] : dir.points);
       navigationDistanceKm = dir.distanceKm;
       navigationDistanceDisplay = dir.distanceDisplay;
       navigationDurationMinutes = dir.durationMinutes;
       navigationDurationDisplay = dir.durationDisplay;
       currentBearing = dir.bearing;
     } else {
-      routePoints = [userLocation!, plant.location];
+      routePoints = [];
+      offTrailPoints = [userLocation!, plant.location];
       final distMeters = Geolocator.distanceBetween(
         userLocation!.latitude,
         userLocation!.longitude,
@@ -1103,9 +1228,8 @@ class MapNotifier extends ChangeNotifier {
       navigationDistanceDisplay = navigationDistanceKm < 1.0
           ? '${distMeters.round()} m'
           : '${navigationDistanceKm.toStringAsFixed(1).replaceAll('.', ',')} km';
-      navigationDurationMinutes =
-          (navigationDistanceKm / 35.0 * 60.0).ceil().clamp(1, 9999);
-      navigationDurationDisplay = '$navigationDurationMinutes phút';
+      navigationDurationMinutes = 0;
+      navigationDurationDisplay = 'Đường thẳng';
       currentBearing = _calculateBearing(userLocation!, plant.location);
     }
 
@@ -1125,6 +1249,7 @@ class MapNotifier extends ChangeNotifier {
   void stopNavigation() {
     isNavigating = false;
     navigationDestination = null;
+    offTrailPoints = [];
     routePoints = [];
     navigationDistanceKm = 0.0;
     navigationDistanceDisplay = '';
@@ -1156,7 +1281,8 @@ class MapNotifier extends ChangeNotifier {
         : plant.name.toLowerCase();
     final sameSpecies = visibleItems.where((p) {
       final pKey = p.plantId.isNotEmpty ? p.plantId : p.name.toLowerCase();
-      return pKey == targetKey || p.name.toLowerCase() == plant.name.toLowerCase();
+      return pKey == targetKey ||
+          p.name.toLowerCase() == plant.name.toLowerCase();
     }).toList();
 
     _rawCarouselPlants = sameSpecies.isNotEmpty ? sameSpecies : [plant];
@@ -1185,7 +1311,9 @@ class MapNotifier extends ChangeNotifier {
     if (a.id == b.id) return true;
 
     // 1. So khớp theo plantId nếu cả 2 đều có
-    if (a.plantId.isNotEmpty && b.plantId.isNotEmpty && a.plantId == b.plantId) {
+    if (a.plantId.isNotEmpty &&
+        b.plantId.isNotEmpty &&
+        a.plantId == b.plantId) {
       return true;
     }
 
@@ -1302,6 +1430,7 @@ class MapNotifier extends ChangeNotifier {
 
   @override
   void dispose() {
+    _compassSubscription?.cancel();
     _positionStreamSub?.cancel();
     _debounceTimer?.cancel();
     mapController.dispose();

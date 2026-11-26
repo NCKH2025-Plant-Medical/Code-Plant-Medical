@@ -1,9 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 /// Persists and retrieves the JWT in the platform's secure enclave
 /// (Android Keystore / iOS Keychain). All keys are namespaced under
 /// [_keyJwt] so callers never touch raw storage strings.
 class SecureStorageService {
+  final ValueNotifier<String?> sessionToken = ValueNotifier(null);
   // ── Singleton ────────────────────────────────────────────────────────────
   static final SecureStorageService _instance = SecureStorageService._();
   factory SecureStorageService() => _instance;
@@ -27,6 +29,7 @@ class SecureStorageService {
   /// Persist Access Token [token] in secure storage.
   Future<void> saveToken(String token) async {
     await _storage.write(key: _keyJwt, value: token);
+    sessionToken.value = token;
   }
 
   /// Persist Refresh Token [token] in secure storage.
@@ -58,6 +61,7 @@ class SecureStorageService {
   Future<void> deleteToken() async {
     await _storage.delete(key: _keyJwt);
     await _storage.delete(key: _keyRefreshToken);
+    sessionToken.value = null;
   }
 
   /// Convenience check — avoids exposing null semantics to callers.

@@ -13,14 +13,13 @@ Frontend đọc base URL từ `--dart-define` (xem `lib/config/app_config.dart`)
 | Biến | Mặc định | Ý nghĩa |
 |---|---|---|
 | `MAP_SYSTEM_URL` | `http://222.255.184.116` | Server chứa **cây hệ thống** (MySQL) |
-| `MAP_USER_URL` | `http://10.0.2.2:8000` | Server chứa **cây cá nhân** (MongoDB, cần JWT) |
+| `MAP_USER_URL` | `http://222.255.184.116` | Server cloud chứa **cây cá nhân** (MongoDB, cần JWT) |
 | `MAP_MOCK` | `false` | `true` → dùng dữ liệu giả lập (khi backend chưa xong) |
 
 Run ứng dụng:
 
 ```bash
-flutter run --dart-define=MAP_SYSTEM_URL=http://10.0.2.2:8000 \
-            --dart-define=MAP_USER_URL=http://10.0.2.2:8000 \
+flutter run --dart-define=LOCAL_BACKEND_URL=http://10.0.2.2:8000 \
             --dart-define=MAP_MOCK=false
 ```
 

@@ -77,7 +77,8 @@ class UserPlant {
       latitude: _parseDouble(json['latitude'] ?? json['lat']),
       longitude: _parseDouble(json['longitude'] ?? json['lng'] ?? json['lon']),
       capturedAt: DateTime.tryParse(
-        (json['captured_at'] ?? json['capturedAt'] ?? '').toString(),
+        (json['captured_at'] ?? json['capturedAt'] ?? json['created_at'] ?? '')
+            .toString(),
       ),
     );
   }
@@ -117,7 +118,12 @@ class UserPlant {
 
   /// Có tọa độ hợp lệ để hiển thị trên bản đồ không.
   bool get hasLocation =>
-      latitude != null && longitude != null && latitude != 0 && longitude != 0;
+      latitude != null &&
+      longitude != null &&
+      latitude!.isFinite &&
+      longitude!.isFinite &&
+      latitude!.abs() <= 90 &&
+      longitude!.abs() <= 180;
 
   static String? _firstString(Map<String, dynamic> json, List<String> keys) {
     for (final k in keys) {

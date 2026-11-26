@@ -31,20 +31,27 @@ class PlantMapMarker with ClusterItem {
   final String? scientificName;
   final String? description;
   final PlantSource source;
+  final bool isProtected;
   final double latitude;
   final double longitude;
 
   PlantMapMarker({
     required this.id,
     this.plantId = '',
+    this.isProtected = false,
     required this.name,
     this.imageUrl,
     this.scientificName,
     this.description,
     required this.source,
-    required this.latitude,
-    required this.longitude,
-  });
+    required double latitude,
+    required double longitude,
+  }) : latitude = isProtected ? latitude : approximateCoordinate(latitude),
+       longitude = isProtected ? longitude : approximateCoordinate(longitude);
+
+  /// Stable ~1 km grid; repeated loads cannot average away random offsets.
+  static double approximateCoordinate(double value) =>
+      ((value * 100).floor() + 0.5) / 100;
 
   @override
   LatLng get location => LatLng(latitude, longitude);
@@ -66,6 +73,7 @@ class PlantMapMarker with ClusterItem {
       scientificName: _firstString(json, ['scientific_name', 'latin_name']),
       description: _firstString(json, ['description', 'short_description']),
       source: PlantSource.system,
+      isProtected: json['is_protected'] == true,
       latitude: _parseDouble(json['latitude'] ?? json['lat']),
       longitude: _parseDouble(json['longitude'] ?? json['lng']),
     );
@@ -95,6 +103,7 @@ class PlantMapMarker with ClusterItem {
   factory PlantMapMarker.fromCacheJson(Map<String, dynamic> json) {
     return PlantMapMarker(
       id: json['id'] as String? ?? '',
+      isProtected: json['isProtected'] == true,
       plantId: json['plantId'] as String? ?? '',
       name: json['name'] as String? ?? 'Cây',
       imageUrl: json['imageUrl'] as String?,
@@ -110,6 +119,7 @@ class PlantMapMarker with ClusterItem {
 
   Map<String, dynamic> toCacheJson() => {
     'id': id,
+    'isProtected': isProtected,
     'plantId': plantId,
     'name': name,
     'imageUrl': imageUrl,

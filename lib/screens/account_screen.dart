@@ -3,8 +3,10 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import 'package:thunghiem1/controllers/auth_notifier.dart';
 import 'package:thunghiem1/screens/history_screen.dart';
+import 'package:thunghiem1/screens/review_feedback_screen.dart';
 import 'package:thunghiem1/screens/sign_in_screen.dart';
 import 'package:thunghiem1/screens/auth/phone_input_screen.dart';
+import 'package:thunghiem1/services/app_feedback_service.dart';
 import 'package:thunghiem1/theme/app_colors.dart';
 
 class AccountScreen extends StatelessWidget {
@@ -239,6 +241,42 @@ class _LoggedInView extends StatelessWidget {
                             );
                           },
                           isFirst: true,
+                        ),
+                        const Divider(
+                          height: 1,
+                          indent: 56,
+                          endIndent: 16,
+                          color: Colors.black12,
+                        ),
+                        _ModernMenuTile(
+                          icon: Icons.photo_library_outlined,
+                          title: 'Ảnh đã gửi để cải thiện AI',
+                          iconColor: Colors.green.shade700,
+                          onTap: () {
+                            final userId = authNotifier.userId;
+                            if (userId == null) return;
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    ReviewFeedbackScreen(userId: userId),
+                              ),
+                            );
+                          },
+                        ),
+                        const Divider(
+                          height: 1,
+                          indent: 56,
+                          endIndent: 16,
+                          color: Colors.black12,
+                        ),
+                        _ModernMenuTile(
+                          icon: Icons.chat_bubble_outline_rounded,
+                          title: 'Đóng góp ý kiến về app',
+                          iconColor: Colors.deepPurple.shade600,
+                          onTap: () {
+                            _showAppFeedbackSheet(context, authNotifier.userId);
+                          },
                         ),
                         const Divider(
                           height: 1,
@@ -610,6 +648,204 @@ class _ModernMenuTile extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+void _showAppFeedbackSheet(BuildContext context, String? userId) {
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (ctx) => _AppFeedbackBottomSheet(userId: userId),
+  );
+}
+
+class _AppFeedbackBottomSheet extends StatefulWidget {
+  final String? userId;
+  const _AppFeedbackBottomSheet({this.userId});
+
+  @override
+  State<_AppFeedbackBottomSheet> createState() => _AppFeedbackBottomSheetState();
+}
+
+class _AppFeedbackBottomSheetState extends State<_AppFeedbackBottomSheet> {
+  int _rating = 5;
+  String _feedbackType = 'ui';
+  final _contentController = TextEditingController();
+  final _emailController = TextEditingController();
+  bool _isSubmitting = false;
+
+  final Map<String, String> _types = {
+    'ui': 'Giao diện & Trải nghiệm',
+    'feature': 'Đề xuất tính năng mới',
+    'data': 'Độ chính xác nhận diện',
+    'bug': 'Báo lỗi ứng dụng',
+    'other': 'Ý kiến khác',
+  };
+
+  @override
+  void dispose() {
+    _contentController.dispose();
+    _emailController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final text = _contentController.text.trim();
+    if (text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Vui lòng nhập nội dung góp ý.')),
+      );
+      return;
+    }
+
+    setState(() => _isSubmitting = true);
+    final success = await AppFeedbackService.sendFeedback(
+      rating: _rating,
+      feedbackType: _feedbackType,
+      content: text,
+      userId: widget.userId,
+      contactEmail: _emailController.text.trim().isEmpty ? null : _emailController.text.trim(),
+    );
+
+    if (!mounted) return;
+    setState(() => _isSubmitting = false);
+
+    if (success) {
+      Navigator.pop(context);
+      showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Row(
+            children: [
+              Icon(Icons.check_circle, color: AppColors.primary),
+              SizedBox(width: 8),
+              Text('Cảm ơn bạn!'),
+            ],
+          ),
+          content: const Text(
+            'Ý kiến của bạn đã được gửi đến ban quản trị để cải thiện ứng dụng.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Đóng'),
+            ),
+          ],
+        ),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Không thể gửi đóng góp. Vui lòng thử lại sau.')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
+    return Container(
+      padding: EdgeInsets.fromLTRB(24, 20, 24, 24 + bottomInset),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 40,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Text(
+              'Đóng góp ý kiến về ứng dụng',
+              style: GoogleFonts.inter(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Ý kiến của bạn giúp chúng tôi hoàn thiện ứng dụng PlantVision tốt hơn.',
+              style: GoogleFonts.inter(fontSize: 13, color: Colors.grey.shade600),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(5, (index) {
+                final starIndex = index + 1;
+                return IconButton(
+                  icon: Icon(
+                    starIndex <= _rating ? Icons.star_rounded : Icons.star_outline_rounded,
+                    color: Colors.amber,
+                    size: 36,
+                  ),
+                  onPressed: () => setState(() => _rating = starIndex),
+                );
+              }),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              value: _feedbackType,
+              decoration: InputDecoration(
+                labelText: 'Chủ đề đóng góp',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              ),
+              items: _types.entries
+                  .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
+                  .toList(),
+              onChanged: (val) {
+                if (val != null) setState(() => _feedbackType = val);
+              },
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _contentController,
+              maxLines: 4,
+              maxLength: 500,
+              decoration: InputDecoration(
+                hintText: 'Nhập nội dung chia sẻ, góp ý hoặc lỗi bạn gặp...',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _emailController,
+              keyboardType: TextInputType.emailAddress,
+              decoration: InputDecoration(
+                hintText: 'Email liên hệ lại (không bắt buộc)',
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: ElevatedButton(
+                onPressed: _isSubmitting ? null : _submit,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.primary,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+                ),
+                child: _isSubmitting
+                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                    : const Text('Gửi đóng góp', style: TextStyle(fontWeight: FontWeight.bold)),
+              ),
+            ),
+          ],
         ),
       ),
     );

@@ -1,5 +1,6 @@
 class ImageResponse {
   final String id;
+  final String? plantId;
   final String imageUrl;
   final String capturedAt;
 
@@ -11,36 +12,78 @@ class ImageResponse {
 
   /// Tên cây (nếu backend trả về).
   final String? commonName;
+  final String? scientificName;
+  final double? confidence;
+  final String? notes;
+  final String? thumbnailUrl;
+
+  String get displayImageUrl =>
+      thumbnailUrl?.isNotEmpty == true ? thumbnailUrl! : imageUrl;
+
+  DateTime? get savedAt {
+    if (!RegExp(
+      r'(Z|[+-]\d{2}:?\d{2})$',
+      caseSensitive: false,
+    ).hasMatch(capturedAt)) {
+      return DateTime.tryParse('${capturedAt}Z');
+    }
+    return DateTime.tryParse(capturedAt);
+  }
+
+  String get savedAtLabel {
+    final date = savedAt?.toLocal();
+    if (date == null) return 'Chưa có thời gian lưu';
+    String pad(int value) => value.toString().padLeft(2, '0');
+    return '${pad(date.day)}/${pad(date.month)}/${date.year} '
+        '${pad(date.hour)}:${pad(date.minute)}';
+  }
 
   ImageResponse({
     required this.id,
+    this.plantId,
     required this.imageUrl,
     required this.capturedAt,
     this.latitude,
     this.longitude,
     this.commonName,
+    this.scientificName,
+    this.confidence,
+    this.notes,
+    this.thumbnailUrl,
   });
 
   factory ImageResponse.fromJson(Map<String, dynamic> json) {
     return ImageResponse(
       id: json['id']?.toString() ?? '',
+      plantId: json['plant_id']?.toString(),
       imageUrl: json['image_url']?.toString() ?? '',
-      capturedAt: json['captured_at']?.toString() ?? '',
+      capturedAt: (json['captured_at'] ?? json['created_at'])?.toString() ?? '',
       latitude: _parseDouble(json['latitude'] ?? json['lat']),
       longitude: _parseDouble(json['longitude'] ?? json['lng'] ?? json['lon']),
       commonName: (json['common_name'] ?? json['name'])?.toString(),
+      scientificName: json['scientific_name']?.toString(),
+      confidence: _parseDouble(json['confidence']),
+      notes: json['notes']?.toString(),
+      thumbnailUrl: json['thumbnail_url']?.toString(),
     );
   }
 
   /// Có tọa độ hợp lệ để hiển thị icon bản đồ không.
   bool get hasLocation =>
-      latitude != null && longitude != null && latitude != 0 && longitude != 0;
+      latitude != null &&
+      longitude != null &&
+      latitude!.isFinite &&
+      longitude!.isFinite &&
+      latitude!.abs() <= 90 &&
+      longitude!.abs() <= 180;
 
   static double? _parseDouble(dynamic value) {
     if (value == null) return null;
     if (value is double) return value;
     if (value is int) return value.toDouble();
-    if (value is String) return double.tryParse(value.trim());
+    if (value is String) {
+      return double.tryParse(value.replaceAll('%', '').trim());
+    }
     return null;
   }
 }
@@ -97,7 +140,7 @@ class UploadImageData {
   factory UploadImageData.fromJson(Map<String, dynamic> json) {
     return UploadImageData(
       id: json['id']?.toString() ?? '',
-      capturedAt: json['captured_at']?.toString() ?? '',
+      capturedAt: (json['captured_at'] ?? json['created_at'])?.toString() ?? '',
     );
   }
 }

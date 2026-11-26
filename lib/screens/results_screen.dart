@@ -3,14 +3,20 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:marquee/marquee.dart';
+import 'package:provider/provider.dart';
+import 'package:thunghiem1/controllers/auth_notifier.dart';
 import 'package:thunghiem1/models/plants_model.dart';
 import 'package:thunghiem1/screens/plant_detail_sheet.dart';
+import 'package:thunghiem1/screens/history_screen.dart';
 import 'package:thunghiem1/services/user_plant_api_service.dart';
 import 'package:thunghiem1/theme/app_colors.dart';
+import 'package:thunghiem1/services/review_feedback_service.dart';
 
 class ResultScreen extends StatefulWidget {
   final Map<String, dynamic> result;
   final String pathImg;
+  final String? feedbackImagePath;
+  final UserPlantApiService? userPlantApi;
 
   /// Tọa độ GPS lúc chụp (null nếu không lấy được).
   final Position? capturePosition;
@@ -19,7 +25,9 @@ class ResultScreen extends StatefulWidget {
     super.key,
     required this.result,
     required this.pathImg,
+    this.feedbackImagePath,
     this.capturePosition,
+    this.userPlantApi,
   });
 
   @override
@@ -27,21 +35,26 @@ class ResultScreen extends StatefulWidget {
 }
 
 class _ResultScreenState extends State<ResultScreen> {
-  final UserPlantApiService _userPlantApi = UserPlantApiService();
+  late final UserPlantApiService _userPlantApi;
 
   bool _isOpeningSheet = false;
-  bool _isSaving = false;
+  String? _savingPlantId;
+  bool get _isSaving => _savingPlantId != null;
+  String? _savedPlantId;
+  bool _feedbackSent = false;
+  bool _feedbackSending = false;
   List<PlantPrediction> _predictions = [];
 
   @override
   void initState() {
     super.initState();
+    _userPlantApi = widget.userPlantApi ?? UserPlantApiService();
     _predictions = PlantPrediction.listFrom(widget.result);
   }
 
   @override
   void dispose() {
-    _userPlantApi.dispose();
+    if (widget.userPlantApi == null) _userPlantApi.dispose();
     super.dispose();
   }
 
@@ -72,11 +85,11 @@ class _ResultScreenState extends State<ResultScreen> {
   ///   • Gọi API → thành công: Snackbar xanh "Đã lưu cây vào Lịch sử và bản đồ!".
   ///   • Vô hiệu hóa nút (đổi thành "Đã lưu") để tránh bấm trùng.
   Future<void> _saveToHistoryAndMap(PlantPrediction plant) async {
-    if (_isSaving) return;
-    setState(() => _isSaving = true);
+    if (_isSaving || _savedPlantId != null) return;
+    setState(() => _savingPlantId = plant.plantId);
 
     try {
-      await _userPlantApi.saveUserPlant(
+      final saved = await _userPlantApi.saveUserPlant(
         imagePath: widget.pathImg,
         name: plant.commonName,
         plantId: plant.plantId,
@@ -87,8 +100,11 @@ class _ResultScreenState extends State<ResultScreen> {
       );
 
       if (!mounted) return;
+      setState(() => _savedPlantId = plant.plantId);
       _showSaveResult(
-        message: 'Đã lưu cây vào Lịch sử và bản đồ!',
+        message: saved.hasLocation
+            ? 'Đã lưu ảnh, thông tin cây và GPS vào Lịch sử và bản đồ!'
+            : 'Đã lưu ảnh và thông tin cây vào Lịch sử. Không có GPS để thêm vào bản đồ.',
         isError: false,
       );
     } catch (e) {
@@ -96,7 +112,7 @@ class _ResultScreenState extends State<ResultScreen> {
       final msg = e.toString().replaceAll('Exception: ', '');
       _showSaveResult(message: msg, isError: true);
     } finally {
-      if (mounted) setState(() => _isSaving = false);
+      if (mounted) setState(() => _savingPlantId = null);
     }
   }
 
@@ -119,6 +135,57 @@ class _ResultScreenState extends State<ResultScreen> {
         duration: const Duration(seconds: 3),
       ),
     );
+  }
+
+  Future<void> _sendFeedback() async {
+    if (_feedbackSending || _feedbackSent || widget.feedbackImagePath == null) {
+      return;
+    }
+    final userId = context.read<AuthNotifier>().userId;
+    if (userId == null) {
+      _showSaveResult(
+        message: 'Vui lòng đăng nhập để gửi và quản lý ảnh của bạn.',
+        isError: true,
+      );
+      return;
+    }
+    setState(() => _feedbackSending = true);
+    try {
+      final sent = await ReviewFeedbackService.askAndSubmit(
+        context,
+        imagePath: widget.feedbackImagePath!,
+        prediction: widget.result,
+        source: 'user_feedback',
+        userId: userId,
+      );
+      if (!mounted || !sent) return;
+      setState(() => _feedbackSent = true);
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Cảm ơn bạn!'),
+          content: const Text(
+            'Ảnh đã được gửi để chuyên gia thẩm định và cải thiện AI. '
+            'Bạn có thể xem hoặc rút lại đồng ý trong Hồ sơ cá nhân.',
+          ),
+          actions: [
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Đóng'),
+            ),
+          ],
+        ),
+      );
+    } catch (_) {
+      if (mounted) {
+        _showSaveResult(
+          message: 'Không thể gửi ảnh. Vui lòng thử lại.',
+          isError: true,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _feedbackSending = false);
+    }
   }
 
   @override
@@ -184,6 +251,27 @@ class _ResultScreenState extends State<ResultScreen> {
             ),
             const SizedBox(height: 12),
             _buildTopMatchCard(topMatch),
+            ...topMatch.warnings.map(
+              (warning) => Card(
+                color: Colors.orange.shade50,
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Cảnh báo cây dễ nhầm',
+                        style: TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                      Text(warning['warning_text']?.toString() ?? ''),
+                      Text(
+                        'Dễ nhầm với: ${warning['other_plant']?['common_name'] ?? ''}',
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
 
             if (suggestions.isNotEmpty) ...[
               const SizedBox(height: 24),
@@ -204,6 +292,14 @@ class _ResultScreenState extends State<ResultScreen> {
             ],
 
             const SizedBox(height: 24),
+            if (_savedPlantId != null)
+              TextButton.icon(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const ImagesListScreen()),
+                ),
+                icon: const Icon(Icons.history),
+                label: const Text('Xem lịch sử đã lưu'),
+              ),
             _buildWarningBox(),
             const SizedBox(height: 16),
 
@@ -397,12 +493,49 @@ class _ResultScreenState extends State<ResultScreen> {
                 ),
                 const SizedBox(width: 10),
                 _SaveButton(
-                  isSaving: _isSaving,
+                  isSaving: _savingPlantId == plant.plantId,
+                  isSaved: _savedPlantId == plant.plantId,
+                  disabled: _isSaving || _savedPlantId != null,
                   onPressed: () => _saveToHistoryAndMap(plant),
                 ),
               ],
             ),
           ),
+          if (widget.feedbackImagePath != null &&
+              widget.result['feedback_token'] != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              child: SizedBox(
+                width: double.infinity,
+                height: 44,
+                child: OutlinedButton.icon(
+                  onPressed: _feedbackSent || _feedbackSending
+                      ? null
+                      : _sendFeedback,
+                  icon: _feedbackSending
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Icon(
+                          _feedbackSent
+                              ? Icons.check_circle_outline
+                              : Icons.volunteer_activism_outlined,
+                        ),
+                  label: Text(
+                    _feedbackSent ? 'Đã gửi ảnh' : 'Gửi ảnh cải thiện AI',
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF1B5E20),
+                    side: const BorderSide(color: Color(0xFF1B5E20)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -497,7 +630,9 @@ class _ResultScreenState extends State<ResultScreen> {
               const SizedBox(height: 6),
               // Tuỳ chọn nâng cao: lưu đề xuất khác khi Top 1 chưa chuẩn.
               _SaveIconButton(
-                isSaving: _isSaving,
+                isSaving: _savingPlantId == plant.plantId,
+                isSaved: _savedPlantId == plant.plantId,
+                disabled: _isSaving || _savedPlantId != null,
                 onPressed: () => _saveToHistoryAndMap(plant),
               ),
             ],
@@ -535,16 +670,23 @@ class _ResultScreenState extends State<ResultScreen> {
 /// Nút lớn "Lưu" cho Top Match.
 class _SaveButton extends StatelessWidget {
   final bool isSaving;
+  final bool isSaved;
+  final bool disabled;
   final VoidCallback onPressed;
 
-  const _SaveButton({required this.isSaving, required this.onPressed});
+  const _SaveButton({
+    required this.isSaving,
+    required this.isSaved,
+    required this.disabled,
+    required this.onPressed,
+  });
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
       height: 48,
       child: ElevatedButton.icon(
-        onPressed: isSaving ? null : onPressed,
+        onPressed: isSaving || disabled ? null : onPressed,
         icon: isSaving
             ? const SizedBox(
                 width: 16,
@@ -554,13 +696,13 @@ class _SaveButton extends StatelessWidget {
                   color: Colors.white,
                 ),
               )
-            : const Icon(
-                Icons.bookmark_add_outlined,
+            : Icon(
+                isSaved ? Icons.bookmark_added : Icons.bookmark_add_outlined,
                 color: Colors.white,
                 size: 20,
               ),
         label: Text(
-          isSaving ? 'Đang lưu' : 'Lưu',
+          isSaving ? 'Đang lưu' : (isSaved ? 'Đã lưu' : 'Lưu'),
           style: const TextStyle(
             fontWeight: FontWeight.w700,
             fontSize: 14,
@@ -584,16 +726,23 @@ class _SaveButton extends StatelessWidget {
 /// Nút icon nhỏ cho danh sách "đề xuất khác".
 class _SaveIconButton extends StatelessWidget {
   final bool isSaving;
+  final bool isSaved;
+  final bool disabled;
   final VoidCallback onPressed;
 
-  const _SaveIconButton({required this.isSaving, required this.onPressed});
+  const _SaveIconButton({
+    required this.isSaving,
+    required this.isSaved,
+    required this.disabled,
+    required this.onPressed,
+  });
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
       height: 32,
       child: ElevatedButton(
-        onPressed: isSaving ? null : onPressed,
+        onPressed: isSaving || disabled ? null : onPressed,
         style: ElevatedButton.styleFrom(
           backgroundColor: AppColors.primaryVariant.withValues(alpha: 0.15),
           foregroundColor: AppColors.primaryVariant,
@@ -610,7 +759,10 @@ class _SaveIconButton extends StatelessWidget {
                 height: 14,
                 child: CircularProgressIndicator(strokeWidth: 2),
               )
-            : const Icon(Icons.bookmark_add_outlined, size: 18),
+            : Icon(
+                isSaved ? Icons.bookmark_added : Icons.bookmark_add_outlined,
+                size: 18,
+              ),
       ),
     );
   }

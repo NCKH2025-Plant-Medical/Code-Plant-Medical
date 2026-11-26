@@ -57,7 +57,22 @@ class AuthNotifier extends ChangeNotifier {
     FirebaseAuth? firebaseAuth,
   }) : _api = api ?? AuthApiService(),
        _storage = storage ?? SecureStorageService(),
-       _firebaseAuth = firebaseAuth;
+       _firebaseAuth = firebaseAuth {
+    _storage.sessionToken.addListener(_sessionChanged);
+  }
+
+  void _sessionChanged() {
+    _jwt = _storage.sessionToken.value;
+    _isAuthenticated = _jwt != null;
+    if (!_isAuthenticated) _userProfile = null;
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _storage.sessionToken.removeListener(_sessionChanged);
+    super.dispose();
+  }
 
   // ── State ─────────────────────────────────────────────────────────────────
 
@@ -249,6 +264,21 @@ class AuthNotifier extends ChangeNotifier {
   /// authenticated without making a network call (offline-first).
   Future<void> init() async {
     _jwt = await _storage.readToken();
+    if (_jwt != null) {
+      try {
+        final payload =
+            jsonDecode(
+                  utf8.decode(
+                    base64Url.decode(base64Url.normalize(_jwt!.split('.')[1])),
+                  ),
+                )
+                as Map<String, dynamic>;
+        final expires = (payload['exp'] as num).toInt();
+        if (expires <= DateTime.now().millisecondsSinceEpoch ~/ 1000 + 120) {
+          _jwt = await _api.refreshToken() ?? _jwt;
+        }
+      } catch (_) {} // Offline: retain the session for a later retry.
+    }
     _isAuthenticated = _jwt != null;
 
     // Khởi tạo Google Sign-In với serverClientId (web client).

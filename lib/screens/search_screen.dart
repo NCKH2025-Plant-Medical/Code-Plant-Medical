@@ -8,6 +8,7 @@ import 'package:thunghiem1/services/api_service.dart';
 import 'package:thunghiem1/screens/plant_detail_sheet.dart';
 import 'package:thunghiem1/widgets/back_nav_button.dart';
 import 'package:thunghiem1/widgets/search_text_field.dart';
+import 'package:uuid/uuid.dart';
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
@@ -22,6 +23,8 @@ class _SearchScreenState extends State<SearchScreen> {
   // ── Controller-based search: listens for every text change reliably ──
   final _controller = TextEditingController();
   Timer? _debounce;
+  Timer? _zeroEventTimer;
+  final String _searchSessionId = const Uuid().v4();
 
   // Suggestion state (always visible, fetched once on init / on refresh)
   bool _loadingSuggestions = true;
@@ -65,6 +68,7 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   void dispose() {
     _debounce?.cancel();
+    _zeroEventTimer?.cancel();
     _controller.removeListener(_onControllerChanged);
     _controller.dispose();
     super.dispose();
@@ -77,6 +81,7 @@ class _SearchScreenState extends State<SearchScreen> {
     if (q == _query) return; // no-op if text hasn't actually changed
 
     _debounce?.cancel();
+    _zeroEventTimer?.cancel();
     setState(() {
       _query = q;
       if (q.isEmpty) {
@@ -96,7 +101,7 @@ class _SearchScreenState extends State<SearchScreen> {
   Future<void> _doSearch(String q) async {
     try {
       final data = await _api.searchPlants(q, limit: 20);
-      if (!mounted) return;
+      if (!mounted || _query != q) return;
       final rawList = data['results'];
       final results = rawList is List
           ? rawList
@@ -109,6 +114,17 @@ class _SearchScreenState extends State<SearchScreen> {
         _loadingSearch = false;
         _searchError = null;
       });
+      if (results.isEmpty && _query == q) {
+        _zeroEventTimer = Timer(const Duration(seconds: 2), () {
+          if (mounted &&
+              _query == q &&
+              _searchResults.isEmpty &&
+              !_loadingSearch &&
+              _searchError == null) {
+            _api.recordZeroResult(q, _searchSessionId).catchError((_) {});
+          }
+        });
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -515,6 +531,15 @@ class _SearchScreenState extends State<SearchScreen> {
                         velocity: 30,
                         pauseAfterRound: const Duration(seconds: 1),
                       ),
+                    ),
+                  ],
+                  if (item.warnings.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      'Cảnh báo dễ nhầm: ${item.warnings.first['warning_text'] ?? ''}',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.red, fontSize: 12),
                     ),
                   ],
                 ],

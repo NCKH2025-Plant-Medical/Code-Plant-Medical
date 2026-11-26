@@ -1,3 +1,4 @@
+import 'session_http_client.dart';
 // lib/services/chat_box_service.dart
 //
 // Service cho tính năng ChatBox (hỏi đáp AI).
@@ -59,7 +60,7 @@ class ChatHistoryPage {
 }
 
 class ChatBoxService {
-  ChatBoxService({http.Client? client}) : _client = client ?? http.Client();
+  ChatBoxService({http.Client? client}) : _client = client ?? SessionHttpClient();
 
   final http.Client _client;
 

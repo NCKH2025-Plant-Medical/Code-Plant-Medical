@@ -1,3 +1,4 @@
+import 'session_http_client.dart';
 // lib/services/user_plant_api_service.dart
 //
 // Service gọi API cây cá nhân (MongoDB):
@@ -27,8 +28,13 @@ import 'package:thunghiem1/models/user_plant.dart';
 import 'package:thunghiem1/services/secure_storage_service.dart';
 
 class UserPlantApiService {
-  UserPlantApiService({http.Client? client})
-    : _client = client ?? http.Client();
+  UserPlantApiService({
+    http.Client? client,
+    Future<String?> Function()? tokenReader,
+  }) : _client = client ?? SessionHttpClient(),
+       _tokenReader = tokenReader ?? SecureStorageService().readToken;
+
+  final Future<String?> Function() _tokenReader;
 
   final http.Client _client;
 
@@ -39,7 +45,7 @@ class UserPlantApiService {
   /// JWT backend (HS256) từ SecureStorage.
   Future<String?> _backendJwt() async {
     try {
-      return await SecureStorageService().readToken();
+      return await _tokenReader();
     } catch (_) {
       return null;
     }
@@ -63,7 +69,7 @@ class UserPlantApiService {
   }) async {
     final token = await _backendJwt();
     if (token == null || token.isEmpty) {
-      throw Exception('Bạn cần đăng nhập để lưu cây vào bản đồ.');
+      throw Exception('Bạn cần đăng nhập để lưu cây.');
     }
 
     final file = File(imagePath);
@@ -71,6 +77,10 @@ class UserPlantApiService {
       throw Exception('Không tìm thấy ảnh để lưu.');
     }
 
+    final size = await file.length();
+    if (size == 0 || size > 10 * 1024 * 1024) {
+      throw Exception('Ảnh phải có dữ liệu và không vượt quá 10 MB.');
+    }
     final uri = Uri.parse('$_baseUrl/api/v1/user-plants');
     final request = http.MultipartRequest('POST', uri);
     request.headers['Authorization'] = 'Bearer $token';
@@ -106,17 +116,21 @@ class UserPlantApiService {
     addField('longitude', longitude?.toStringAsFixed(6));
     addField('notes', notes);
 
-    final streamed = await request.send().timeout(_timeout);
-    final response = await http.Response.fromStream(streamed);
+    final response = await (() async {
+      final streamed = await _client.send(request);
+      return http.Response.fromStream(streamed);
+    })().timeout(_timeout);
 
     if (response.statusCode == 201 || response.statusCode == 200) {
       final decoded = json.decode(utf8.decode(response.bodyBytes));
       if (decoded is Map<String, dynamic>) {
         final data = decoded['data'];
-        if (data is Map<String, dynamic>) {
-          return UserPlant.fromJson(data);
+        final saved = UserPlant.fromJson(
+          data is Map<String, dynamic> ? data : decoded,
+        );
+        if (saved.id.isNotEmpty && saved.imageUrl?.isNotEmpty == true) {
+          return saved;
         }
-        return UserPlant.fromJson(decoded);
       }
       throw Exception('Phản hồi lưu cây không hợp lệ.');
     }
@@ -125,8 +139,21 @@ class UserPlantApiService {
       throw Exception('Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.');
     }
 
+    String? detail;
+    try {
+      final body = json.decode(utf8.decode(response.bodyBytes));
+      if (body is Map && body['detail'] is String) {
+        detail = (body['detail'] as String).trim();
+      }
+    } on FormatException {
+      // Reverse proxies may return an HTML error page instead of JSON.
+    }
     throw Exception(
-      'Lưu cây thất bại (${response.statusCode}). Vui lòng thử lại.',
+      detail?.isNotEmpty == true
+          ? detail
+          : response.statusCode == 502
+          ? 'Máy chủ không thể lưu ảnh lúc này (502). Vui lòng thử lại sau.'
+          : 'Lưu cây thất bại (${response.statusCode}). Vui lòng thử lại.',
     );
   }
 
@@ -149,6 +176,7 @@ class UserPlantApiService {
       List l => l,
       Map m when m.containsKey('data') => m['data'] as List? ?? [],
       Map m when m.containsKey('plants') => m['plants'] as List? ?? [],
+      Map m when m.containsKey('items') => m['items'] as List? ?? [],
       _ => [],
     };
 

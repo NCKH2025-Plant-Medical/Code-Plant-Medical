@@ -4,6 +4,10 @@ class PlantPrediction {
   final String scientificName; // 1. Khai báo thêm biến
   final double confidence; // 0..100
   final String? imageUrl;
+  final List<Map<String, dynamic>> warnings;
+  final String? source;
+  final String? safetyWarning;
+  final bool toxicLookalike;
 
   const PlantPrediction({
     required this.plantId,
@@ -11,6 +15,10 @@ class PlantPrediction {
     required this.scientificName, // 2. Thêm vào constructor
     required this.confidence,
     this.imageUrl,
+    this.warnings = const [],
+    this.source,
+    this.safetyWarning,
+    this.toxicLookalike = false,
   });
 
   factory PlantPrediction.fromJson(Map<String, dynamic> json) {
@@ -20,7 +28,27 @@ class PlantPrediction {
       scientificName: json['scientific_name']?.toString() ?? 'Không xác định',
       confidence: _parseConfidence(json['confidence']),
       imageUrl: json['image_url']?.toString(),
+      warnings: (json['warnings'] as List? ?? const [])
+          .whereType<Map>()
+          .map((entry) => Map<String, dynamic>.from(entry))
+          .toList(),
+      source: json['source']?.toString(),
+      safetyWarning: json['safety_warning']?.toString(),
+      toxicLookalike: json['toxic_lookalike'] == true,
     );
+  }
+
+  bool get isReferenceOnly => source == 'secondary_resolver' || confidence < 60;
+
+  String? get friendlyWarning {
+    if (toxicLookalike) {
+      return 'Loài này có cây trông giống gây ĐỘC trong tự nhiên. '
+          'Hãy thận trọng khi nhận diện và sử dụng.';
+    }
+    if (isReferenceOnly) {
+      return 'Kết quả này chỉ là tham khảo. Bạn có muốn chọn cây này không?';
+    }
+    return null;
   }
 
   /// Parses the whole response safely. Never throws; returns [] on bad data.

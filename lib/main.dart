@@ -5,6 +5,7 @@ import 'package:thunghiem1/app.dart';
 import 'package:thunghiem1/firebase_options.dart';
 import 'package:thunghiem1/theme/theme_notifier.dart';
 
+import 'package:thunghiem1/services/telemetry_service.dart';
 import 'package:thunghiem1/widgets/error_dialog.dart';
 
 void _showGlobalError(String message) {
@@ -27,11 +28,22 @@ void main() async {
   FlutterError.onError = (FlutterErrorDetails details) {
     FlutterError.presentError(details);
     _showGlobalError('Lỗi giao diện: ${details.exceptionAsString()}');
+    TelemetryService.sendError(
+      'FlutterError',
+      details.exceptionAsString(),
+      details.stack?.toString() ?? '',
+      screen: 'unknown',
+    );
   };
 
   // Catch asynchronous errors
   PlatformDispatcher.instance.onError = (error, stack) {
     _showGlobalError('Lỗi không xác định: $error');
+    TelemetryService.sendError(
+      'UnhandledError',
+      error.toString(),
+      stack.toString(),
+    );
     return true;
   };
 

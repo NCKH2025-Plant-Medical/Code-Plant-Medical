@@ -152,6 +152,69 @@ class ApiService {
     return decoded;
   }
 
+  /// Called only after the final empty state has remained visible to the user.
+  Future<void> recordZeroResult(String query, String searchSessionId) async {
+    final response = await http
+        .post(
+          Uri.parse('${AppConfig.adminBridgeUrl}/api/v1/search-events/zero-result'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            'query': query,
+            'search_session_id': searchSessionId,
+          }),
+        )
+        .timeout(const Duration(seconds: 10));
+    if (response.statusCode != 202 && response.statusCode != 409) {
+      throw Exception('Không thể ghi nhận từ khóa (${response.statusCode}).');
+    }
+  }
+
+  Future<Map<String, dynamic>> submitPredictionFeedback({
+    required String imagePath,
+    required String feedbackToken,
+    required String source,
+  }) async {
+    final request = http.MultipartRequest(
+      'POST',
+      Uri.parse('${AppConfig.adminBridgeUrl}/api/v1/prediction-feedback'),
+    );
+    request.fields['feedback_token'] = feedbackToken;
+    request.fields['consent_granted'] = 'true';
+    request.fields['source'] = source;
+    final extension = imagePath.toLowerCase().split('.').last;
+    final contentType = extension == 'png'
+        ? MediaType('image', 'png')
+        : extension == 'webp'
+        ? MediaType('image', 'webp')
+        : MediaType('image', 'jpeg');
+    request.files.add(
+      await http.MultipartFile.fromPath(
+        'file',
+        imagePath,
+        contentType: contentType,
+      ),
+    );
+    final response = await request.send().timeout(const Duration(seconds: 30));
+    final body = await response.stream.toBytes();
+    if (response.statusCode != 202) {
+      throw Exception('Không thể gửi ảnh (${response.statusCode}).');
+    }
+    return jsonDecode(utf8.decode(body)) as Map<String, dynamic>;
+  }
+
+  Future<void> revokePredictionFeedback(String revocationToken) async {
+    final response = await http
+        .post(
+          Uri.parse('${AppConfig.adminBridgeUrl}/api/v1/prediction-feedback/revoke'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'revocation_token': revocationToken}),
+        )
+        .timeout(const Duration(seconds: 15));
+    if (response.statusCode != 202) {
+      throw Exception('Không thể rút lại đồng ý (${response.statusCode}).');
+    }
+  }
+
   /// Lấy danh sách gợi ý ngẫu nhiên bằng cách tìm kiếm các chữ cái ngắn.
   Future<List<Map<String, dynamic>>> getRandomSuggestions({
     int limit = 8,

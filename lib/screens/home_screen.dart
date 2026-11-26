@@ -8,7 +8,7 @@ import 'package:thunghiem1/screens/map_screen.dart';
 import 'package:thunghiem1/screens/search_screen.dart';
 import 'package:thunghiem1/screens/chat_ai_screen.dart';
 import 'package:thunghiem1/screens/account_screen.dart';
-import 'package:thunghiem1/screens/garden/garden_screen.dart';
+import 'package:thunghiem1/features/herbal_garden/screens/garden_hub_screen.dart';
 import 'package:thunghiem1/widgets/action_cards.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -247,7 +247,8 @@ class _HomeScreenState extends State<HomeScreen> {
                               );
                             },
                           ),
-                        ),                      ],
+                        ),
+                      ],
                     ),
                   ),
                   Padding(
@@ -263,7 +264,7 @@ class _HomeScreenState extends State<HomeScreen> {
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (context) => const GardenScreen(),
+                                  builder: (context) => const GardenHubScreen(),
                                 ),
                               );
                             },

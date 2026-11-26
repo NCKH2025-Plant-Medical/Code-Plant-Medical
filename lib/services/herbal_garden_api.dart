@@ -1,3 +1,4 @@
+import 'session_http_client.dart';
 // lib/services/herbal_garden_api.dart
 //
 // Service gọi API Vườn Dược Liệu (Herbal Garden).
@@ -64,11 +65,11 @@ class AddPlantResult {
 }
 
 class HerbalGardenApi {
-  HerbalGardenApi({http.Client? client}) : _client = client ?? http.Client();
+  HerbalGardenApi({http.Client? client}) : _client = client ?? SessionHttpClient();
 
   final http.Client _client;
 
-  String get _baseUrl => AppConfig.mapUserUrl;
+  String get _baseUrl => AppConfig.gardenUrl;
 
   String get _root => '$_baseUrl/api/v1/herbal-garden';
 
@@ -451,7 +452,7 @@ class HerbalGardenApi {
   Future<PredictResult> predict(File file) async {
     final request = http.MultipartRequest(
       'POST',
-      Uri.parse('${AppConfig.detectUrl}/predict'),
+      Uri.parse('${AppConfig.gardenDetectUrl}/predict'),
     );
     request.headers.addAll(await _headers(json: false));
     request.files.add(await http.MultipartFile.fromPath('file', file.path));
@@ -465,7 +466,7 @@ class HerbalGardenApi {
 
   /// ⚠️ Tham số là `q`, KHÔNG phải `query` (sai sẽ nhận 422).
   Future<List<PlantSearchResult>> searchPlants(String q) async {
-    final uri = Uri.parse('${AppConfig.mapUserUrl}/api/v1/plants/search')
+    final uri = Uri.parse('${AppConfig.gardenUrl}/api/v1/plants/search')
         .replace(queryParameters: {'q': q});
     final res = await _client.get(uri, headers: await _headers()).timeout(_timeout);
     final body = await _decode(res) as Map<String, dynamic>;

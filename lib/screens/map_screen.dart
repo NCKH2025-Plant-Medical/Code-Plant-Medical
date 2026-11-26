@@ -83,7 +83,9 @@ class _PlantMapScreenState extends State<PlantMapScreen> {
     if (_searchController.text != _notifier.searchQuery) {
       _searchController.value = TextEditingValue(
         text: _notifier.searchQuery,
-        selection: TextSelection.collapsed(offset: _notifier.searchQuery.length),
+        selection: TextSelection.collapsed(
+          offset: _notifier.searchQuery.length,
+        ),
       );
     }
 
@@ -135,7 +137,9 @@ class _PlantMapScreenState extends State<PlantMapScreen> {
                 notifier.isCarouselVisible &&
                 notifier.carouselPlants.isNotEmpty &&
                 !notifier.isNavigating;
-            final controlsBottomOffset = isCarouselVisible ? 186.0 : 24.0;
+            final controlsBottomOffset = notifier.isNavigating
+                ? 150.0
+                : (isCarouselVisible ? 186.0 : 24.0);
 
             return Stack(
               children: [
@@ -169,6 +173,11 @@ class _PlantMapScreenState extends State<PlantMapScreen> {
                   child: const _MapControlButtons(),
                 ),
 
+                Positioned(
+                  top: MediaQuery.paddingOf(context).top + 205,
+                  right: 16,
+                  child: const _CompassControl(),
+                ),
                 // 6. Legend (chú thích màu)
                 Positioned(
                   bottom: controlsBottomOffset,
@@ -301,10 +310,26 @@ class _OsmMapLayer extends StatelessWidget {
               if (notif.currentTheme == MapTileTheme.dark) {
                 return ColorFiltered(
                   colorFilter: const ColorFilter.matrix(<double>[
-                    -0.7, 0, 0, 0, 215,
-                    0, -0.7, 0, 0, 215,
-                    0, 0, -0.65, 0, 225,
-                    0, 0, 0, 1, 0,
+                    -0.7,
+                    0,
+                    0,
+                    0,
+                    215,
+                    0,
+                    -0.7,
+                    0,
+                    0,
+                    215,
+                    0,
+                    0,
+                    -0.65,
+                    0,
+                    225,
+                    0,
+                    0,
+                    0,
+                    1,
+                    0,
                   ]),
                   child: tileWidget,
                 );
@@ -312,10 +337,26 @@ class _OsmMapLayer extends StatelessWidget {
                 // Sáng dịu mắt: Tông màu ấm dịu, lọc ánh sáng xanh
                 return ColorFiltered(
                   colorFilter: const ColorFilter.matrix(<double>[
-                    0.96, 0.04, 0.0, 0, 10,
-                    0.0, 0.96, 0.04, 0, 10,
-                    0.0, 0.0, 0.88, 0, 4,
-                    0,    0,    0,    1, 0,
+                    0.96,
+                    0.04,
+                    0.0,
+                    0,
+                    10,
+                    0.0,
+                    0.96,
+                    0.04,
+                    0,
+                    10,
+                    0.0,
+                    0.0,
+                    0.88,
+                    0,
+                    4,
+                    0,
+                    0,
+                    0,
+                    1,
+                    0,
                   ]),
                   child: tileWidget,
                 );
@@ -328,6 +369,15 @@ class _OsmMapLayer extends StatelessWidget {
         Consumer<MapNotifier>(
           builder: (_, notif, __) => CircleLayer(
             circles: [
+              if (notif.navigationDestination != null)
+                CircleMarker(
+                  point: notif.navigationDestination!.location,
+                  useRadiusInMeter: true,
+                  radius: 800,
+                  color: Colors.green.withValues(alpha: 0.12),
+                  borderColor: Colors.green,
+                  borderStrokeWidth: 1.5,
+                ),
               if (notif.isNearbyActive && notif.userLocation != null)
                 CircleMarker(
                   point: notif.userLocation!,
@@ -344,6 +394,13 @@ class _OsmMapLayer extends StatelessWidget {
         Consumer<MapNotifier>(
           builder: (_, notif, __) => PolylineLayer(
             polylines: [
+              if (notif.offTrailPoints.isNotEmpty)
+                Polyline(
+                  points: notif.offTrailPoints,
+                  strokeWidth: 3,
+                  color: Colors.orange,
+                  pattern: const StrokePattern.dotted(),
+                ),
               if (notif.routePoints.isNotEmpty)
                 Polyline(
                   points: notif.routePoints,
@@ -368,7 +425,9 @@ class _OsmMapLayer extends StatelessWidget {
                   width: notif.isNavigating ? 42 : 32,
                   height: notif.isNavigating ? 42 : 32,
                   child: Transform.rotate(
-                    angle: notif.currentBearing * (pi / 180.0),
+                    angle:
+                        (notif.compassHeading ?? notif.currentBearing) *
+                        (pi / 180.0),
                     child: Container(
                       decoration: BoxDecoration(
                         color: const Color(0xFF1565C0),
@@ -463,7 +522,9 @@ class _SourceListbox extends StatelessWidget {
       data: Theme.of(context).copyWith(
         popupMenuTheme: PopupMenuThemeData(
           color: isDark ? AppColors.darkSurface : Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
           elevation: 6,
         ),
       ),
@@ -626,7 +687,9 @@ class _NearbyListbox extends StatelessWidget {
       data: Theme.of(context).copyWith(
         popupMenuTheme: PopupMenuThemeData(
           color: isDark ? AppColors.darkSurface : Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
           elevation: 6,
         ),
       ),
@@ -646,7 +709,11 @@ class _NearbyListbox extends StatelessWidget {
               value: 0.0,
               child: const Row(
                 children: [
-                  Icon(Icons.layers_clear_rounded, size: 16, color: Colors.redAccent),
+                  Icon(
+                    Icons.layers_clear_rounded,
+                    size: 16,
+                    color: Colors.redAccent,
+                  ),
                   SizedBox(width: 10),
                   Text(
                     'Tắt tìm quanh đây (Hiện tất cả)',
@@ -678,13 +745,19 @@ class _NearbyListbox extends StatelessWidget {
                       'Bán kính ${r.toInt()} km',
                       style: TextStyle(
                         fontSize: 13,
-                        fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+                        fontWeight: isSelected
+                            ? FontWeight.w800
+                            : FontWeight.w600,
                         color: isSelected ? activeColor : null,
                       ),
                     ),
                   ),
                   if (isSelected)
-                    const Icon(Icons.check_rounded, size: 18, color: activeColor),
+                    const Icon(
+                      Icons.check_rounded,
+                      size: 18,
+                      color: activeColor,
+                    ),
                 ],
               ),
             );
@@ -935,7 +1008,10 @@ class _MapControlButtons extends StatelessWidget {
     );
   }
 
-  static void _showThemeBottomSheet(BuildContext context, MapNotifier notifier) {
+  static void _showThemeBottomSheet(
+    BuildContext context,
+    MapNotifier notifier,
+  ) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -1067,7 +1143,9 @@ class _NavigationBottomBanner extends StatelessWidget {
       child: Row(
         children: [
           Transform.rotate(
-            angle: notifier.currentBearing * (pi / 180.0),
+            angle:
+                (notifier.destinationBearing - (notifier.compassHeading ?? 0)) *
+                (pi / 180.0),
             child: Container(
               padding: const EdgeInsets.all(10),
               decoration: const BoxDecoration(
@@ -1088,7 +1166,7 @@ class _NavigationBottomBanner extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  'Dẫn đường tới: ${notifier.navigationDestination?.name ?? "Cây"}',
+                  'Tới khu vực: ${notifier.navigationDestination?.name ?? "Cây"}',
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 15,
@@ -1112,10 +1190,7 @@ class _NavigationBottomBanner extends StatelessWidget {
                     const SizedBox(width: 8),
                     Text(
                       '•  ${notifier.navigationDurationDisplay.isNotEmpty ? notifier.navigationDurationDisplay : "Khoảng ${notifier.navigationDurationMinutes} phút"}',
-                      style: const TextStyle(
-                        color: Colors.grey,
-                        fontSize: 13,
-                      ),
+                      style: const TextStyle(color: Colors.grey, fontSize: 13),
                     ),
                   ],
                 ),
@@ -1124,7 +1199,11 @@ class _NavigationBottomBanner extends StatelessWidget {
           ),
           IconButton(
             onPressed: notifier.stopNavigation,
-            icon: const Icon(Icons.close_rounded, color: Colors.redAccent, size: 26),
+            icon: const Icon(
+              Icons.close_rounded,
+              color: Colors.redAccent,
+              size: 26,
+            ),
             tooltip: 'Dừng dẫn đường',
           ),
         ],
@@ -1183,10 +1262,11 @@ class _SearchResultsPanel extends StatelessWidget {
                     width: 34,
                     height: 34,
                     decoration: BoxDecoration(
-                      color: (isSystem
-                              ? const Color(0xFF1565C0)
-                              : const Color(0xFFE65100))
-                          .withValues(alpha: 0.12),
+                      color:
+                          (isSystem
+                                  ? const Color(0xFF1565C0)
+                                  : const Color(0xFFE65100))
+                              .withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Icon(
@@ -1289,7 +1369,10 @@ class _NearbyPlantsCarouselState extends State<_NearbyPlantsCarousel> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
                   color: isDark
                       ? AppColors.darkSurface.withValues(alpha: 0.95)
@@ -1317,15 +1400,17 @@ class _NearbyPlantsCarouselState extends State<_NearbyPlantsCarousel> {
                       notifier.isNearbyActive
                           ? 'Cây quanh bạn (${plants.length} cây)'
                           : (plants.length > 1 &&
-                                  plants.every(
-                                    (p) =>
-                                        p.name.trim().toLowerCase() ==
-                                        plants.first.name.trim().toLowerCase(),
-                                  )
-                              ? '${plants.first.name} (${plants.length} vị trí)'
-                              : (plants.length > 1
-                                  ? 'Cây tại vị trí này (${plants.length} cây)'
-                                  : plants.first.name)),
+                                    plants.every(
+                                      (p) =>
+                                          p.name.trim().toLowerCase() ==
+                                          plants.first.name
+                                              .trim()
+                                              .toLowerCase(),
+                                    )
+                                ? '${plants.first.name} (${plants.length} vị trí)'
+                                : (plants.length > 1
+                                      ? 'Cây tại vị trí này (${plants.length} cây)'
+                                      : plants.first.name)),
                       style: TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
@@ -1374,7 +1459,10 @@ class _NearbyPlantsCarouselState extends State<_NearbyPlantsCarousel> {
                 duration: const Duration(milliseconds: 200),
                 scale: isSelected ? 1.0 : 0.96,
                 child: Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                  margin: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 2,
+                  ),
                   decoration: BoxDecoration(
                     color: isDark ? AppColors.darkSurface : Colors.white,
                     borderRadius: BorderRadius.circular(18),
@@ -1414,10 +1502,11 @@ class _NearbyPlantsCarouselState extends State<_NearbyPlantsCarousel> {
                               child: Container(
                                 width: 68,
                                 height: 68,
-                                color: (isSystem
-                                        ? const Color(0xFF1565C0)
-                                        : const Color(0xFFE65100))
-                                    .withValues(alpha: 0.1),
+                                color:
+                                    (isSystem
+                                            ? const Color(0xFF1565C0)
+                                            : const Color(0xFFE65100))
+                                        .withValues(alpha: 0.1),
                                 child:
                                     (plant.imageUrl != null &&
                                         plant.imageUrl!.isNotEmpty)
@@ -1435,9 +1524,7 @@ class _NearbyPlantsCarouselState extends State<_NearbyPlantsCarousel> {
                                         ),
                                       )
                                     : Icon(
-                                        isSystem
-                                            ? Icons.eco
-                                            : Icons.camera_alt,
+                                        isSystem ? Icons.eco : Icons.camera_alt,
                                         color: isSystem
                                             ? const Color(0xFF1565C0)
                                             : const Color(0xFFE65100),
@@ -1492,7 +1579,9 @@ class _NearbyPlantsCarouselState extends State<_NearbyPlantsCarousel> {
                                                       ? const Color(0xFF1565C0)
                                                       : const Color(0xFFE65100))
                                                   .withValues(alpha: 0.12),
-                                          borderRadius: BorderRadius.circular(6),
+                                          borderRadius: BorderRadius.circular(
+                                            6,
+                                          ),
                                         ),
                                         child: Text(
                                           plant.source.label,
@@ -1639,11 +1728,7 @@ class _MapLegend extends StatelessWidget {
             : Colors.white.withValues(alpha: 0.95),
         borderRadius: BorderRadius.circular(14),
         boxShadow: const [
-          BoxShadow(
-            color: Colors.black12,
-            blurRadius: 8,
-            offset: Offset(0, 3),
-          ),
+          BoxShadow(color: Colors.black12, blurRadius: 8, offset: Offset(0, 3)),
         ],
       ),
       child: const Column(
@@ -1653,6 +1738,8 @@ class _MapLegend extends StatelessWidget {
           _LegendItem(color: Color(0xFF1565C0), label: 'Cây hệ thống'),
           SizedBox(height: 6),
           _LegendItem(color: Color(0xFFE65100), label: 'Cây cá nhân'),
+          SizedBox(height: 6),
+          Text('Vị trí đã làm mờ để bảo tồn', style: TextStyle(fontSize: 11)),
         ],
       ),
     );
@@ -1734,7 +1821,8 @@ class _UserHeaderAvatar extends StatelessWidget {
               ],
             ),
             child: ClipOval(
-              child: (isAuthenticated &&
+              child:
+                  (isAuthenticated &&
                       avatarUrl != null &&
                       avatarUrl.trim().isNotEmpty)
                   ? Image.network(
@@ -1754,7 +1842,62 @@ class _UserHeaderAvatar extends StatelessWidget {
     return Container(
       color: AppColors.primary.withValues(alpha: 0.12),
       alignment: Alignment.center,
-      child: const Icon(Icons.person_rounded, color: AppColors.primary, size: 22),
+      child: const Icon(
+        Icons.person_rounded,
+        color: AppColors.primary,
+        size: 22,
+      ),
+    );
+  }
+}
+
+class _CompassControl extends StatelessWidget {
+  const _CompassControl();
+
+  @override
+  Widget build(BuildContext context) {
+    final notifier = context.watch<MapNotifier>();
+    final heading = notifier.compassHeading;
+    return Material(
+      elevation: 4,
+      borderRadius: BorderRadius.circular(16),
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Bắc', style: TextStyle(fontWeight: FontWeight.bold)),
+            if (heading != null)
+              Transform.rotate(
+                angle: -heading * pi / 180,
+                child: const Icon(
+                  Icons.navigation,
+                  color: Colors.redAccent,
+                  size: 36,
+                ),
+              )
+            else
+              const Icon(Icons.explore_off_outlined, size: 36),
+            Text(
+              heading == null
+                  ? 'Chưa có cảm biến'
+                  : '${heading.round() % 360}°',
+            ),
+            TextButton(
+              onPressed: notifier.toggleCompassNavigation,
+              child: Text(
+                notifier.compassNavigation ? 'La bàn ✓' : 'Theo đường',
+              ),
+            ),
+            if (notifier.compassNavigation)
+              const Text(
+                'Hướng thẳng tới vùng cây\nKhông phải lối đi an toàn',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 10),
+              ),
+          ],
+        ),
+      ),
     );
   }
 }

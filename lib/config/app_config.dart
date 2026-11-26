@@ -1,52 +1,67 @@
 class AppConfig {
-  // ── Nhận diện cây (AI Model) ─────────────────────────────────────────────
-  /// Server AI production (remote)
+  /// Cloud cho nhận diện, xác thực, chat, tra cứu và vườn dược liệu.
+  static const cloudUrl = 'http://222.255.184.116';
+
+  /// Localhost máy tính nhìn từ Android Emulator.
+  /// Web/desktop: --dart-define=LOCAL_BACKEND_URL=http://localhost:8000
+  /// Điện thoại thật: dùng IP LAN của máy tính, cổng 8000.
+  static const localBackendUrl = String.fromEnvironment(
+    'LOCAL_BACKEND_URL',
+    defaultValue: 'http://10.0.2.2:8000',
+  );
+
   static const detectUrl = String.fromEnvironment(
     'DETECT_URL',
-    defaultValue: 'http://222.255.184.116',
+    defaultValue: localBackendUrl,
   );
 
-  /// Server backend local (dev). Trên Android Emulator dùng 10.0.2.2 thay localhost.
-  /// Trên thiết bị thật trong cùng mạng WiFi: dùng IP LAN máy tính (VD: 192.168.1.x:8000)
-  ///
-  /// Server `222.255.184.116` là bản "Inference-only" — chỉ có `/predict`,
-  /// `/api/v1/chat/*` và `/api/v1/plants/search`. Các API còn lại (auth,
-  /// system-plants/map, user-plants, images) chỉ có ở backend local.
+  /// API local ghi sự kiện tìm kiếm và ảnh cải thiện AI vào MongoDB dùng chung với admin.
+  static const adminBridgeUrl = String.fromEnvironment(
+    'ADMIN_BRIDGE_URL',
+    defaultValue: localBackendUrl,
+  );
+
+  // Giữ tương thích với cấu hình cũ; các chức năng chung vẫn dùng cloud.
   static const detectUrlLocal = String.fromEnvironment(
     'DETECT_URL_LOCAL',
-    defaultValue: 'http://222.255.184.116',
+    defaultValue: cloudUrl,
   );
 
-  static const historyUrl = String.fromEnvironment(
-    'HISTORY_URL',
-    defaultValue: 'http://222.255.184.116',
-  );
-
-  // ── Bản đồ ────────────────────────────────────────────────────────────────
-  /// Base URL cho API cây trồng hệ thống (MySQL) — không cần auth.
-  /// Mặc định dùng local server (dev). Production: dùng --dart-define=MAP_SYSTEM_URL=...
+  /// GPS và cây cá nhân đã được triển khai trên cloud.
   static const mapSystemUrl = String.fromEnvironment(
     'MAP_SYSTEM_URL',
-    defaultValue: 'http://222.255.184.116',
+    defaultValue: cloudUrl,
   );
-
-  /// Base URL cho API cây trồng cá nhân (MongoDB) — cần Bearer JWT.
   static const mapUserUrl = String.fromEnvironment(
     'MAP_USER_URL',
-    defaultValue: 'http://222.255.184.116',
+    defaultValue: cloudUrl,
   );
 
-  /// Base URL cho API lịch sử ảnh người dùng.
+  /// Lịch sử cây cá nhân dùng cùng backend cloud với mapUserUrl.
+  static const historyUrl = String.fromEnvironment(
+    'HISTORY_URL',
+    defaultValue: mapUserUrl,
+  );
   static const historyUserUrl = String.fromEnvironment(
     'HISTORY_USER_URL',
-    defaultValue: 'http://222.255.184.116',
+    defaultValue: historyUrl,
   );
 
-  /// Base URL cho API ChatBox (hỏi đáp AI).
-  /// Mặc định trùng host với các API khác.
   static const chatUrl = String.fromEnvironment(
     'CHAT_URL',
-    defaultValue: 'http://222.255.184.116',
+    defaultValue: cloudUrl,
+  );
+
+  /// Tách khỏi mapUserUrl để vườn không đi theo backend GPS.
+  static const gardenUrl = String.fromEnvironment(
+    'GARDEN_URL',
+    defaultValue: cloudUrl,
+  );
+
+  /// Nhận diện trong vườn dùng cloud; nhận diện có gửi ảnh cho admin vẫn dùng detectUrl local.
+  static const gardenDetectUrl = String.fromEnvironment(
+    'GARDEN_DETECT_URL',
+    defaultValue: cloudUrl,
   );
 
   /// UID dùng cho API Vườn Dược Liệu.
@@ -84,21 +99,13 @@ class AppConfig {
   /// Ví dụ: `--dart-define=AUTH_URL=http://10.0.2.2:8000`
   static const authUrl = String.fromEnvironment(
     'AUTH_URL',
-    defaultValue: 'http://222.255.184.116',
+    defaultValue: cloudUrl,
   );
 
-  /// Danh sách host dự phòng cho API xác thực, cách nhau bằng dấu phẩy.
-  ///
-  /// App sẽ dò lần lượt các host này (kèm [authUrl]) và chọn host đầu tiên
-  /// thực sự phục vụ router `/api/auth/*`.
-  ///
-  /// - `10.0.2.2:8000` → backend local khi chạy trên Android Emulator.
-  /// - `192.168.1.14:8000` → backend local trong cùng mạng WiFi (máy thật).
-  ///
-  /// Có thể ghi đè: `--dart-define=AUTH_FALLBACK_URLS=http://a:8000,http://b:8000`
+  /// Không tự chuyển xác thực sang local khi cloud không phản hồi.
   static const authFallbackUrls = String.fromEnvironment(
     'AUTH_FALLBACK_URLS',
-    defaultValue: 'http://10.0.2.2:8000,http://192.168.1.14:8000',
+    defaultValue: '',
   );
 
   /// Bật mock data khi backend chưa sẵn sàng.
@@ -106,19 +113,9 @@ class AppConfig {
   /// Mặc định = false (dùng API thật).
   static const mapMock = bool.fromEnvironment('MAP_MOCK', defaultValue: false);
 
-  /// Danh sách host dự phòng cho API bản đồ, cách nhau bằng dấu phẩy.
-  ///
-  /// App sẽ dò lần lượt các host này (kèm [mapSystemUrl]) và chọn host đầu tiên
-  /// thực sự phục vụ router `/api/v1/system-plants/map`.
-  ///
-  /// - `10.0.2.2:8000` → backend local khi chạy trên Android Emulator.
-  /// - `192.168.1.14:8000` → backend local trong cùng mạng WiFi (máy thật).
-  /// - `222.255.184.116` → server production.
-  ///
-  /// Có thể ghi đè: `--dart-define=MAP_FALLBACK_URLS=http://a:8000,http://b:8000`
+  /// Host dự phòng tùy chọn cho API GPS.
   static const mapFallbackUrls = String.fromEnvironment(
     'MAP_FALLBACK_URLS',
-    defaultValue:
-        'http://10.0.2.2:8000,http://192.168.1.14:8000,http://222.255.184.116',
+    defaultValue: '',
   );
 }

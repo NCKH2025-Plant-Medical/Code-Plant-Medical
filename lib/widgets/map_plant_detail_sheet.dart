@@ -20,11 +20,7 @@ class MapPlantDetailSheet extends StatelessWidget {
   final PlantMapMarker plant;
   final MapNotifier? notifier;
 
-  const MapPlantDetailSheet({
-    super.key,
-    required this.plant,
-    this.notifier,
-  });
+  const MapPlantDetailSheet({super.key, required this.plant, this.notifier});
 
   static Future<void> show(
     BuildContext context,
@@ -45,10 +41,8 @@ class MapPlantDetailSheet extends StatelessWidget {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => MapPlantDetailSheet(
-        plant: plant,
-        notifier: effectiveNotifier,
-      ),
+      builder: (_) =>
+          MapPlantDetailSheet(plant: plant, notifier: effectiveNotifier),
     );
   }
 
@@ -140,7 +134,9 @@ class MapPlantDetailSheet extends StatelessWidget {
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.w800,
-                            color: isDark ? AppColors.darkOnSurface : Colors.black87,
+                            color: isDark
+                                ? AppColors.darkOnSurface
+                                : Colors.black87,
                           ),
                         ),
                         if (plant.scientificName != null &&
@@ -194,8 +190,9 @@ class MapPlantDetailSheet extends StatelessWidget {
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      '${plant.latitude.toStringAsFixed(5)}, '
-                      '${plant.longitude.toStringAsFixed(5)}',
+                      plant.isProtected
+                          ? 'Vùng phân bố khái quát • Cây cần bảo tồn'
+                          : 'Khu vực gần đúng (ô khoảng 1 km)',
                       style: TextStyle(
                         fontSize: 12.5,
                         color: isDark ? Colors.white54 : Colors.grey,
